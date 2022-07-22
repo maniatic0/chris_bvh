@@ -1,14 +1,15 @@
 use crate::{Ray, Triangle};
 
-/// Objects capable of being intersected by a ray
-pub trait RayIntersect {
-    fn ray_intersect(&self, ray: &mut Ray);
+/// Objects capable of being intersected by a ray (in place)
+pub trait InPlaceRayIntersect {
+    fn inplace_ray_intersect(&self, ray: &mut Ray);
 }
 
-// Epsilon used for ray intersections
+/// Epsilon used for ray intersections
 pub const RAY_INTERSECT_EPSILON: f32 = 0.0001;
 
-pub fn ray_triangle_intersect(tri: &Triangle, ray: &mut Ray) {
+/// Intersect a triangle with a ray, then store the intersection result in the ray
+pub fn inplace_ray_triangle_intersect(tri: &Triangle, ray: &mut Ray) {
     let edge1 = tri.vertex1 - tri.vertex0;
     let edge2 = tri.vertex2 - tri.vertex0;
     let h = ray.direction.cross(edge2);
@@ -34,8 +35,9 @@ pub fn ray_triangle_intersect(tri: &Triangle, ray: &mut Ray) {
     }
 }
 
-impl RayIntersect for Triangle {
-    fn ray_intersect(&self, ray: &mut Ray) {
-        ray_triangle_intersect(self, ray);
+impl InPlaceRayIntersect for Triangle {
+    #[inline]
+    fn inplace_ray_intersect(&self, ray: &mut Ray) {
+        inplace_ray_triangle_intersect(self, ray);
     }
 }
