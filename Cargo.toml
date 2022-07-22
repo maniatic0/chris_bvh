@@ -1,0 +1,12 @@
+[package]
+name = "chris_bvh"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rand = { version = "*" }
+bytemuck = { version = "*" }
+approx = { version = "*" }
+glam = { version = "*", features = ["approx", "bytemuck", "rand"] }
