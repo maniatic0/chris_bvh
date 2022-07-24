@@ -5,7 +5,12 @@ extern crate test;
 mod benchmarks {
     use test::Bencher;
 
-    use std::iter;
+    use std::{
+        fs::File,
+        io::{BufRead, BufReader},
+        iter,
+        path::PathBuf,
+    };
 
     use rand::{thread_rng, Rng};
 
@@ -65,6 +70,68 @@ mod benchmarks {
                 Triangle::new(v0, v1, v2)
             })
             .collect();
+
+        let mut bvh = SimpleBVH::default();
+        bvh.init(triangles.clone());
+        bvh.build();
+
+        b.iter(|| {
+            for y in 0..RESOLUTION_Y {
+                for x in 0..RESOLUTION_X {
+                    let pixel_pos: Vec3A = P0
+                        + (P1 - P0) * (x as f32 / RESOLUTION_X as f32)
+                        + (P2 - P0) * (y as f32 / RESOLUTION_Y as f32);
+                    let mut ray =
+                        Ray::infinite_ray(CAM_POS, (pixel_pos - CAM_POS).normalize_or_zero());
+
+                    bvh.inplace_ray_intersect(&mut ray);
+                }
+            }
+        });
+    }
+
+    fn load_unity_model() -> Vec<Triangle> {
+        let mut unity_file = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        unity_file.push("assets/models/unity.tri");
+
+        let mut f = BufReader::new(File::open(unity_file).unwrap());
+
+        // read the first line and extract the number from it
+        let mut num_line = String::new();
+        f.read_line(&mut num_line).unwrap();
+        let n: usize = num_line.trim().parse().unwrap();
+
+        // preallocate the array and read the data into it
+        let mut model: Vec<Triangle> = vec![Default::default(); n];
+        for (i, line) in f.lines().enumerate().take(n) {
+            let numbers: Vec<f32> = line
+                .unwrap()
+                .split(char::is_whitespace)
+                .map(|num_str| num_str.trim().parse::<f32>().unwrap())
+                .collect();
+            model[i].vertex0 = Vec3A::new(numbers[0], numbers[1], numbers[2]);
+            model[i].vertex1 = Vec3A::new(numbers[3], numbers[4], numbers[5]);
+            model[i].vertex2 = Vec3A::new(numbers[6], numbers[7], numbers[8]);
+            model[i].compute_centroid();
+        }
+
+        model
+    }
+
+    #[bench]
+    fn simple_bvh_unity_build(b: &mut Bencher) {
+        let triangles: Vec<Triangle> = load_unity_model();
+
+        b.iter(|| {
+            let mut bvh = SimpleBVH::default();
+            bvh.init(triangles.clone());
+            bvh.build();
+        });
+    }
+
+    #[bench]
+    fn simple_bvh_unity_intersect(b: &mut Bencher) {
+        let triangles: Vec<Triangle> = load_unity_model();
 
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles.clone());
