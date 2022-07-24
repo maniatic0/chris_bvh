@@ -1,6 +1,6 @@
 use crate::{Ray, Triangle};
 
-/// Objects capable of being intersected by a ray (in place)
+/// Objects capable of being intersected by a ray in place
 pub trait InPlaceRayIntersect {
     fn inplace_ray_intersect(&self, ray: &mut Ray);
 }
@@ -39,5 +39,51 @@ impl InPlaceRayIntersect for Triangle {
     #[inline]
     fn inplace_ray_intersect(&self, ray: &mut Ray) {
         inplace_ray_triangle_intersect(self, ray);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use rand::{thread_rng, Rng};
+
+    use glam::Vec3A;
+
+    use approx::*;
+
+    use crate::*;
+
+    #[test]
+    fn ray_triangle_intersect() {
+        let mut rng = thread_rng();
+        let tri: Triangle = {
+            let v0 = rng.gen::<Vec3A>() * 9.0 - Vec3A::splat(5.0);
+            let v1 = rng.gen();
+            let v2 = rng.gen();
+            Triangle::new(v0, v1, v2)
+        };
+
+        let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
+
+        tri.inplace_ray_intersect(&mut ray);
+
+        assert_abs_diff_eq!(ray.distance, tri.centroid.distance(Vec3A::ZERO), epsilon = RAY_INTERSECT_EPSILON);
+    }
+
+    #[test]
+    fn ray_triangle_no_intersect() {
+        let mut rng = thread_rng();
+        let tri: Triangle = {
+            let v0 = rng.gen::<Vec3A>() * 9.0 - Vec3A::splat(5.0);
+            let v1 = rng.gen();
+            let v2 = rng.gen();
+            Triangle::new(v0, v1, v2)
+        };
+
+        let mut ray = Ray::infinite_ray(Vec3A::ZERO, -tri.centroid.normalize_or_zero());
+
+        tri.inplace_ray_intersect(&mut ray);
+
+        assert!(ray.distance.is_infinite());
     }
 }

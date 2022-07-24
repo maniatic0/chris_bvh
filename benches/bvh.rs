@@ -52,4 +52,36 @@ mod benchmarks {
             }
         });
     }
+
+    #[bench]
+    fn simple_bvh(b: &mut Bencher) {
+        let mut rng = thread_rng();
+        let triangles: Vec<Triangle> = iter::repeat(0)
+            .take(TRIANGLES_NUM)
+            .map(|_| {
+                let v0 = rng.gen::<Vec3A>() * 9.0 - Vec3A::splat(5.0);
+                let v1 = rng.gen();
+                let v2 = rng.gen();
+                Triangle::new(v0, v1, v2)
+            })
+            .collect();
+
+        let mut bvh = SimpleBVH::default();
+        bvh.init(triangles.clone());
+        bvh.build();
+
+        b.iter(|| {
+            for y in 0..RESOLUTION_Y {
+                for x in 0..RESOLUTION_X {
+                    let pixel_pos: Vec3A = P0
+                        + (P1 - P0) * (x as f32 / RESOLUTION_X as f32)
+                        + (P2 - P0) * (y as f32 / RESOLUTION_Y as f32);
+                    let mut ray =
+                        Ray::infinite_ray(CAM_POS, (pixel_pos - CAM_POS).normalize_or_zero());
+
+                    bvh.inplace_ray_intersect(&mut ray);
+                }
+            }
+        });
+    }
 }

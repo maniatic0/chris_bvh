@@ -3,6 +3,7 @@
 pub struct Ray {
     pub origin: glam::Vec3A,
     pub direction: glam::Vec3A,
+    // TODO: add direction inverse
     pub distance: f32,
 }
 
