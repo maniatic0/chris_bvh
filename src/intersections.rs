@@ -1,9 +1,20 @@
-use crate::{Ray, Triangle};
+use crate::{Ray, Triangle, AABB};
 
-/// Objects capable of being intersected by a ray in place
+/// Objects capable of being intersected by a ray that store the distance in the ray
 pub trait InPlaceRayIntersect {
     fn inplace_ray_intersect(&self, ray: &mut Ray);
 }
+
+/// Objects capable of being intersected by a ray that return the distance from the function
+pub trait RayIntersect {
+    fn ray_intersect(&self, ray: &Ray) -> f32;
+}
+
+/// Objects capable of being intersected by a ray that only return if there was an intersection
+pub trait FastRayIntersect {
+    fn fast_ray_intersect(&self, ray: &Ray) -> bool;
+}
+
 
 /// Epsilon used for ray intersections
 pub const RAY_INTERSECT_EPSILON: f32 = 0.0001;
@@ -85,5 +96,30 @@ mod tests {
         tri.inplace_ray_intersect(&mut ray);
 
         assert!(ray.distance.is_infinite());
+    }
+}
+
+
+pub fn aabb_slab_test(aabb: &AABB, ray: &Ray) -> bool {
+    assert!(
+        aabb.is_valid(),
+        "This test doesn't work with invalid boxes"
+    );
+    let t1 = (aabb.min - ray.origin) / ray.direction;
+    let t2 = (aabb.max - ray.origin) / ray.direction;
+
+    let tmin = t1.min(t2);
+    let tmax = t1.max(t2);
+
+    let ttmin = tmin.max_element();
+    let ttmax = tmax.min_element();
+
+    return ttmax >= ttmin && ttmin < ray.distance && ttmax > 0.0;
+}
+
+impl FastRayIntersect for AABB {
+    #[inline]
+    fn fast_ray_intersect(&self, ray: &Ray) -> bool {
+        aabb_slab_test(self, ray)
     }
 }

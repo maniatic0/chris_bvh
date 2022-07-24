@@ -1,13 +1,12 @@
 extern crate glam;
 
-use crate::{InPlaceRayIntersect, Ray, Triangle};
+use crate::{InPlaceRayIntersect, Ray, Triangle, AABB, FastRayIntersect};
 
 pub trait BVH: InPlaceRayIntersect {}
 
 #[derive(Debug, Clone, Copy)]
 pub struct SimpleBVHNode {
-    pub aabb_min: glam::Vec3A,
-    pub aabb_max: glam::Vec3A,
+    pub aabb: AABB,
     left_first: u32,
     pub prim_count: u32,
 }
@@ -15,8 +14,7 @@ pub struct SimpleBVHNode {
 impl Default for SimpleBVHNode {
     fn default() -> Self {
         Self {
-            aabb_min: glam::Vec3A::splat(f32::INFINITY),
-            aabb_max: glam::Vec3A::splat(-f32::INFINITY),
+            aabb: Default::default(),
             left_first: 0,
             prim_count: 0,
         }
@@ -34,7 +32,7 @@ pub enum Axis {
 impl SimpleBVHNode {
     /// Get split plane from a node. It is the longest extent of the aabb
     pub fn get_split_plane(&self) -> (Axis, f32) {
-        let extent = self.aabb_max - self.aabb_min;
+        let extent = self.aabb.max - self.aabb.min;
         let mut axis = Axis::X;
         if extent.y > extent.x {
             axis = Axis::Y;
@@ -42,7 +40,7 @@ impl SimpleBVHNode {
         if extent.z > extent[axis as usize] {
             axis = Axis::Z;
         }
-        let split_pos = self.aabb_min[axis as usize] + extent[axis as usize] * 0.5;
+        let split_pos = self.aabb.min[axis as usize] + extent[axis as usize] * 0.5;
         (axis, split_pos)
     }
 
@@ -90,23 +88,6 @@ impl SimpleBVHNode {
     pub fn setup_left_child(&mut self, left_child: u32) {
         self.prim_count = 0;
         self.left_first = left_child;
-    }
-
-    pub fn aabb_slab_test(&self, ray: &mut Ray) -> bool {
-        assert!(
-            self.aabb_min.le(&self.aabb_max),
-            "This test doesn't work with invalid boxes"
-        );
-        let t1 = (self.aabb_min - ray.origin) / ray.direction;
-        let t2 = (self.aabb_max - ray.origin) / ray.direction;
-
-        let tmin = t1.min(t2);
-        let tmax = t1.max(t2);
-
-        let ttmin = tmin.max_element();
-        let ttmax = tmax.min_element();
-
-        return ttmax >= ttmin && ttmin < ray.distance && ttmax > 0.0;
     }
 }
 
@@ -158,8 +139,7 @@ impl SimpleBVH {
 
         let root = &mut self.nodes[self.root_node_id as usize];
         root.setup_prims(0, tri_count as u32);
-        root.aabb_min = glam::Vec3A::splat(f32::INFINITY);
-        root.aabb_max = glam::Vec3A::splat(-f32::INFINITY);
+        root.aabb = Default::default();
 
         if tri_count > 0 {
             self.build_node_bounds(self.root_node_id);
@@ -170,22 +150,14 @@ impl SimpleBVH {
     fn build_node_bounds(&mut self, node_id: u32) {
         let node = &mut self.nodes[node_id as usize];
         assert!(node.is_leaf(), "Not valid for internal nodes");
-        node.aabb_min = glam::Vec3A::splat(f32::INFINITY);
-        node.aabb_max = glam::Vec3A::splat(-f32::INFINITY);
+        node.aabb = Default::default();
 
         let first: usize = node.first_prim() as usize;
         for i in 0..node.prim_count {
             let tri = self.triangles[self.triangles_id[first + i as usize] as usize];
-            node.aabb_min = node
-                .aabb_min
-                .min(tri.vertex0)
-                .min(tri.vertex1)
-                .min(tri.vertex2);
-            node.aabb_max = node
-                .aabb_max
-                .max(tri.vertex0)
-                .max(tri.vertex1)
-                .max(tri.vertex2);
+            node.aabb.grow(tri.vertex0);
+            node.aabb.grow(tri.vertex1);
+            node.aabb.grow(tri.vertex2);
         }
     }
 
@@ -245,7 +217,7 @@ impl SimpleBVH {
 
     fn intersect_ray(&self, node_id: u32, ray: &mut Ray) {
         let node = &self.nodes[node_id as usize];
-        if !node.aabb_slab_test(ray) {
+        if !node.aabb.fast_ray_intersect(ray) {
             return;
         }
 

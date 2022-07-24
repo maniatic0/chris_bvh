@@ -41,6 +41,7 @@ impl Triangle {
 }
 
 impl Default for Triangle {
+    #[inline]
     fn default() -> Self {
         Self::ZERO
     }
