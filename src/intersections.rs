@@ -15,7 +15,6 @@ pub trait FastRayIntersect {
     fn fast_ray_intersect(&self, ray: &Ray) -> bool;
 }
 
-
 /// Epsilon used for ray intersections
 pub const RAY_INTERSECT_EPSILON: f32 = 0.0001;
 
@@ -78,7 +77,11 @@ mod tests {
 
         tri.inplace_ray_intersect(&mut ray);
 
-        assert_abs_diff_eq!(ray.distance, tri.centroid.distance(Vec3A::ZERO), epsilon = RAY_INTERSECT_EPSILON);
+        assert_abs_diff_eq!(
+            ray.distance,
+            tri.centroid.distance(Vec3A::ZERO),
+            epsilon = RAY_INTERSECT_EPSILON
+        );
     }
 
     #[test]
@@ -99,12 +102,8 @@ mod tests {
     }
 }
 
-
 pub fn aabb_slab_test(aabb: &AABB, ray: &Ray) -> bool {
-    assert!(
-        aabb.is_valid(),
-        "This test doesn't work with invalid boxes"
-    );
+    assert!(aabb.is_valid(), "This test doesn't work with invalid boxes");
     let t1 = (aabb.min - ray.origin) / ray.direction;
     let t2 = (aabb.max - ray.origin) / ray.direction;
 
@@ -121,5 +120,29 @@ impl FastRayIntersect for AABB {
     #[inline]
     fn fast_ray_intersect(&self, ray: &Ray) -> bool {
         aabb_slab_test(self, ray)
+    }
+}
+
+pub fn aabb_slab_distance(aabb: &AABB, ray: &Ray) -> f32 {
+    assert!(aabb.is_valid(), "This test doesn't work with invalid boxes");
+    let t1 = (aabb.min - ray.origin) / ray.direction;
+    let t2 = (aabb.max - ray.origin) / ray.direction;
+
+    let tmin = t1.min(t2);
+    let tmax = t1.max(t2);
+
+    let ttmin = tmin.max_element();
+    let ttmax = tmax.min_element();
+
+    if ttmax >= ttmin && ttmin < ray.distance && ttmax > 0.0 {
+        return ttmin;
+    } else {
+        return f32::INFINITY;
+    }
+}
+
+impl RayIntersect for AABB {
+    fn ray_intersect(&self, ray: &Ray) -> f32 {
+        aabb_slab_distance(self, ray)
     }
 }
