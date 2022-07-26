@@ -350,7 +350,7 @@ where
         self.subdivide(right_child_idx);
     }
 
-    fn intersect_ray(&self, node_id: u32, ray: &mut Ray) {
+    fn inplace_intersect_ray(&self, node_id: u32, ray: &mut Ray) {
         let node = &self.nodes[node_id as usize];
         if !node.aabb.fast_ray_intersect(ray) {
             return;
@@ -362,8 +362,8 @@ where
                     .inplace_ray_intersect(ray);
             }
         } else {
-            self.intersect_ray(node.left_first, ray);
-            self.intersect_ray(node.right_child(), ray);
+            self.inplace_intersect_ray(node.left_first, ray);
+            self.inplace_intersect_ray(node.right_child(), ray);
         }
     }
 }
@@ -372,7 +372,7 @@ impl InPlaceRayIntersect for SimpleBVH {
     #[inline]
     fn inplace_ray_intersect(&self, ray: &mut Ray) {
         if self.triangles.len() > 0 {
-            self.intersect_ray(self.root_node_id, ray);
+            self.inplace_intersect_ray(self.root_node_id, ray);
         }
     }
 }
