@@ -3,7 +3,7 @@ extern crate glam;
 use strum::EnumIter;
 use strum::IntoEnumIterator;
 
-use crate::{FastRayIntersect, InPlaceRayIntersect, Ray, Triangle, AABB};
+use crate::{FastRayIntersect, InPlaceRayIntersect, Ray, RayIntersect, Triangle, AABB};
 
 use std::marker::PhantomData;
 
@@ -351,19 +351,71 @@ where
     }
 
     fn inplace_intersect_ray(&self, node_id: u32, ray: &mut Ray) {
-        let node = &self.nodes[node_id as usize];
-        if !node.aabb.fast_ray_intersect(ray) {
+        let mut node = Option::Some(&self.nodes[node_id as usize]);
+
+        let node_ref = node.unwrap();
+        if !node_ref.aabb.fast_ray_intersect(ray) {
             return;
         }
 
-        if node.is_leaf() {
-            for i in 0..node.prim_count {
-                self.triangles[self.triangles_id[(node.first_prim() + i) as usize] as usize]
-                    .inplace_ray_intersect(ray);
+        let mut stack: [Option<&SimpleBVHNode>; 64] = [Default::default(); 64];
+        let mut stack_ptr = 0 as usize;
+
+        loop {
+            let node_ref = node.unwrap();
+
+            if node_ref.is_leaf() {
+                let first_prim = node_ref.first_prim();
+
+                for i in 0..node_ref.prim_count {
+                    self.triangles[self.triangles_id[(first_prim + i) as usize] as usize]
+                        .inplace_ray_intersect(ray);
+                }
+
+                if stack_ptr == 0 {
+                    break;
+                } else {
+                    stack_ptr -= 1;
+                    node = stack[stack_ptr];
+                    continue;
+                }
+            } else {
+                let child1 = &self.nodes[node_ref.left_child() as usize];
+                let child2 = &self.nodes[node_ref.right_child() as usize];
+
+                let mut dist1 = child1.aabb.ray_intersect(ray);
+                let mut dist2 = child2.aabb.ray_intersect(ray);
+
+                let mut child1 = Option::Some(child1);
+                let mut child2 = Option::Some(child2);
+
+                if dist1 > dist2 {
+                    (dist1, dist2) = (dist2, dist1);
+                    (child1, child2) = (child2, child1);
+                }
+
+                let dist1 = dist1;
+                let dist2 = dist2;
+
+                let child1 = child1;
+                let child2 = child2;
+
+                if dist1.is_infinite() {
+                    if stack_ptr == 0 {
+                        break;
+                    } else {
+                        stack_ptr -= 1;
+                        node = stack[stack_ptr];
+                        continue;
+                    }
+                } else {
+                    node = child1;
+                    if dist2.is_finite() {
+                        stack[stack_ptr] = child2;
+                        stack_ptr += 1;
+                    }
+                }
             }
-        } else {
-            self.inplace_intersect_ray(node.left_first, ray);
-            self.inplace_intersect_ray(node.right_child(), ray);
         }
     }
 }
