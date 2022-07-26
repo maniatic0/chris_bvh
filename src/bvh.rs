@@ -3,8 +3,11 @@ extern crate glam;
 use strum::EnumIter;
 use strum::IntoEnumIterator;
 
-use crate::{FastRayIntersect, InPlaceRayIntersect, Ray, RayIntersect, Triangle, AABB};
+use crate::{
+    FastRayIntersect, InPlaceRayIntersect, Ray, RayIntersect, Triangle, AABB, RAY_INTERSECT_EPSILON,
+};
 
+use std::cmp::min;
 use std::marker::PhantomData;
 
 pub trait BVH: InPlaceRayIntersect {}
@@ -79,6 +82,127 @@ impl SimpleBVHNode {
                     best_pos = candidate_pos;
                     best_axis = axis;
                     best_cost = cost;
+                }
+            }
+        }
+
+        if best_cost >= self.compute_sah() {
+            return (Axis::X, f32::INFINITY, false);
+        }
+
+        return (best_axis, best_pos, true);
+    }
+
+    /// Get split plane from a node using the binned SAH strategy using. Number of intervals set at compile time . Returns the axis, the split position and if the node should be split
+    pub fn get_compile_binned_sah_split_plane<const INTERVAL_NUM: usize>(
+        &self,
+        triangles: &Vec<Triangle>,
+        triangles_id: &Vec<u32>,
+    ) -> (Axis, f32, bool)
+    where
+        [f32; INTERVAL_NUM - 1]: Sized,
+    {
+        assert!(INTERVAL_NUM >= 2, "At least two intervals are needed");
+        let mut best_axis = Axis::X;
+        let mut best_pos: f32 = 0.0;
+        let mut best_cost = f32::INFINITY;
+
+        let first_prim = self.left_first as usize;
+        let prim_count = self.prim_count as usize;
+
+        let mut bounds_min = glam::Vec3A::splat(f32::INFINITY);
+        let mut bounds_max = glam::Vec3A::splat(-f32::INFINITY);
+
+        for i in 0..prim_count {
+            let triangle = &triangles[triangles_id[first_prim + i] as usize];
+            bounds_min = bounds_min.min(triangle.centroid);
+            bounds_max = bounds_max.max(triangle.centroid);
+        }
+
+        let bounds_min = bounds_min;
+        let bounds_max = bounds_max;
+
+        #[derive(Debug, Clone, Copy)]
+        struct Bin {
+            pub bounds: AABB,
+            pub tri_count: u32,
+        }
+
+        impl Default for Bin {
+            fn default() -> Self {
+                Self {
+                    bounds: Default::default(),
+                    tri_count: 0,
+                }
+            }
+        }
+
+        for axis in Axis::iter() {
+            let bounds_min = bounds_min[axis as usize];
+            let bounds_max = bounds_max[axis as usize];
+
+            if approx::abs_diff_eq!(bounds_min, bounds_max, epsilon = RAY_INTERSECT_EPSILON) {
+                continue;
+            }
+
+            let mut bins: [Bin; INTERVAL_NUM] = [Default::default(); INTERVAL_NUM];
+
+            let scale = INTERVAL_NUM as f32 / (bounds_max - bounds_min);
+
+            for i in 0..prim_count {
+                let triangle = &triangles[triangles_id[first_prim + i] as usize];
+
+                let bin_id = min(
+                    INTERVAL_NUM - 1,
+                    ((triangle.centroid[axis as usize] - bounds_min) * scale) as usize,
+                );
+
+                let bin = &mut bins[bin_id];
+
+                bin.tri_count += 1;
+                bin.bounds.grow(triangle.vertex0);
+                bin.bounds.grow(triangle.vertex1);
+                bin.bounds.grow(triangle.vertex2);
+            }
+
+            let bins = bins;
+
+            let mut left_area: [f32; INTERVAL_NUM - 1] = [0.0; INTERVAL_NUM - 1];
+            let mut right_area: [f32; INTERVAL_NUM - 1] = [0.0; INTERVAL_NUM - 1];
+            let mut left_count: [u32; INTERVAL_NUM - 1] = [0; INTERVAL_NUM - 1];
+            let mut right_count: [u32; INTERVAL_NUM - 1] = [0; INTERVAL_NUM - 1];
+
+            let mut left_box: AABB = Default::default();
+            let mut right_box: AABB = Default::default();
+
+            let mut left_sum: u32 = 0;
+            let mut right_sum: u32 = 0;
+
+            for i in 0..(INTERVAL_NUM - 1) {
+                left_sum += bins[i].tri_count;
+                left_count[i] = left_sum;
+                left_box.grow_aabb(&bins[i].bounds);
+                left_area[i] = left_box.area();
+
+                right_sum += bins[INTERVAL_NUM - 1 - i].tri_count;
+                right_count[INTERVAL_NUM - 2 - i] = right_sum;
+                right_box.grow_aabb(&bins[INTERVAL_NUM - 1 - i].bounds);
+                right_area[INTERVAL_NUM - 2 - i] = right_box.area();
+            }
+
+            let left_area = left_area;
+            let right_area = right_area;
+            let left_count = left_count;
+            let right_count = right_count;
+
+            let scale = (bounds_max - bounds_min) / INTERVAL_NUM as f32;
+            for i in 0..(INTERVAL_NUM - 1) {
+                let plane_cost =
+                    left_count[i] as f32 * left_area[i] + right_count[i] as f32 * right_area[i];
+                if plane_cost < best_cost {
+                    best_pos = bounds_min + scale * (i + 1) as f32;
+                    best_axis = axis;
+                    best_cost = plane_cost;
                 }
             }
         }
@@ -211,7 +335,25 @@ impl SplitPlaneStrategy for SAHStrategy {
     }
 }
 
-pub struct SimpleBVH<Strat = SAHStrategy>
+pub struct CompiledBinnedSAHStrategy<const INTERVAL_NUM: usize = 8>
+where
+    [f32; INTERVAL_NUM - 1]: Sized, {}
+
+impl<const INTERVAL_NUM: usize> SplitPlaneStrategy for CompiledBinnedSAHStrategy<INTERVAL_NUM>
+where
+    [f32; INTERVAL_NUM - 1]: Sized,
+{
+    #[inline(always)]
+    fn get_split_plane(
+        node: &SimpleBVHNode,
+        triangles: &Vec<Triangle>,
+        triangles_id: &Vec<u32>,
+    ) -> (Axis, f32, bool) {
+        node.get_compile_binned_sah_split_plane::<INTERVAL_NUM>(triangles, triangles_id)
+    }
+}
+
+pub struct SimpleBVH<Strat = CompiledBinnedSAHStrategy>
 where
     Strat: SplitPlaneStrategy,
 {
@@ -420,7 +562,10 @@ where
     }
 }
 
-impl InPlaceRayIntersect for SimpleBVH {
+impl<Strat> InPlaceRayIntersect for SimpleBVH<Strat>
+where
+    Strat: SplitPlaneStrategy,
+{
     #[inline]
     fn inplace_ray_intersect(&self, ray: &mut Ray) {
         if self.triangles.len() > 0 {
@@ -450,7 +595,7 @@ mod tests {
     fn empty_no_intersect() {
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, Vec3A::X);
 
-        let mut bvh = SimpleBVH::default();
+        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
         bvh.init(vec![]);
         bvh.build();
 
@@ -471,7 +616,7 @@ mod tests {
 
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
-        let mut bvh = SimpleBVH::default();
+        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
         bvh.init(vec![tri]);
         bvh.build();
 
@@ -496,7 +641,7 @@ mod tests {
 
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, -tri.centroid.normalize_or_zero());
 
-        let mut bvh = SimpleBVH::default();
+        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
         bvh.init(vec![tri]);
         bvh.build();
 
@@ -522,7 +667,7 @@ mod tests {
 
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
-        let mut bvh = SimpleBVH::default();
+        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
         bvh.init(triangles.clone());
         bvh.build();
 

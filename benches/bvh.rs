@@ -79,7 +79,7 @@ mod benchmarks {
             })
             .collect();
 
-        let mut bvh = SimpleBVH::default();
+        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
         bvh.init(triangles.clone());
         bvh.build();
 
@@ -136,9 +136,10 @@ mod benchmarks {
     fn simple_bvh_unity_build(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_unity_model();
 
+        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        bvh.init(triangles.clone());
+
         b.iter(|| {
-            let mut bvh = SimpleBVH::<SAHStrategy>::default();
-            bvh.init(triangles.clone());
             bvh.build();
         });
     }
@@ -147,7 +148,7 @@ mod benchmarks {
     fn simple_bvh_unity_intersect(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_unity_model();
 
-        let mut bvh = SimpleBVH::default();
+        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
         bvh.init(triangles.clone());
         bvh.build();
 
