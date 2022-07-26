@@ -5,6 +5,8 @@ use strum::IntoEnumIterator;
 
 use crate::{FastRayIntersect, InPlaceRayIntersect, Ray, Triangle, AABB};
 
+use std::marker::PhantomData;
+
 pub trait BVH: InPlaceRayIntersect {}
 
 #[derive(Debug, Clone, Copy)]
@@ -176,15 +178,55 @@ impl SimpleBVHNode {
     }
 }
 
-pub struct SimpleBVH {
+pub trait SplitPlaneStrategy {
+    /// Get split plane from a node using an stragetgy. Returns the axis, the split position and if the node should be split
+    fn get_split_plane(
+        node: &SimpleBVHNode,
+        triangles: &Vec<Triangle>,
+        triangles_id: &Vec<u32>,
+    ) -> (Axis, f32, bool);
+}
+
+pub struct LongestExtentStrategy {}
+impl SplitPlaneStrategy for LongestExtentStrategy {
+    #[inline(always)]
+    fn get_split_plane(
+        node: &SimpleBVHNode,
+        triangles: &Vec<Triangle>,
+        triangles_id: &Vec<u32>,
+    ) -> (Axis, f32, bool) {
+        node.get_longest_extent_split_plane(triangles, triangles_id)
+    }
+}
+
+pub struct SAHStrategy {}
+impl SplitPlaneStrategy for SAHStrategy {
+    #[inline(always)]
+    fn get_split_plane(
+        node: &SimpleBVHNode,
+        triangles: &Vec<Triangle>,
+        triangles_id: &Vec<u32>,
+    ) -> (Axis, f32, bool) {
+        node.get_sah_split_plane(triangles, triangles_id)
+    }
+}
+
+pub struct SimpleBVH<Strat = SAHStrategy>
+where
+    Strat: SplitPlaneStrategy,
+{
     pub triangles: Vec<Triangle>,
     triangles_id: Vec<u32>,
     nodes: Vec<SimpleBVHNode>,
     root_node_id: u32,
     nodes_used: u32,
+    split_strategy: PhantomData<Strat>,
 }
 
-impl Default for SimpleBVH {
+impl<Strat> Default for SimpleBVH<Strat>
+where
+    Strat: SplitPlaneStrategy,
+{
     fn default() -> Self {
         Self {
             triangles: Default::default(),
@@ -192,11 +234,15 @@ impl Default for SimpleBVH {
             nodes: Default::default(),
             root_node_id: 0,
             nodes_used: 0,
+            split_strategy: Default::default(),
         }
     }
 }
 
-impl SimpleBVH {
+impl<Strat> SimpleBVH<Strat>
+where
+    Strat: SplitPlaneStrategy,
+{
     pub fn init(&mut self, triangles: Vec<Triangle>) {
         self.triangles = triangles;
     }
@@ -251,7 +297,7 @@ impl SimpleBVH {
         assert!(node.is_leaf(), "Not valid for internal nodes");
 
         let (axis, split_pos, should_split) =
-            node.get_sah_split_plane(&self.triangles, &self.triangles_id);
+            Strat::get_split_plane(node, &self.triangles, &self.triangles_id);
 
         if !should_split {
             return;

@@ -123,7 +123,7 @@ mod benchmarks {
         let triangles: Vec<Triangle> = load_unity_model();
 
         b.iter(|| {
-            let mut bvh = SimpleBVH::default();
+            let mut bvh = SimpleBVH::<SAHStrategy>::default();
             bvh.init(triangles.clone());
             bvh.build();
         });
