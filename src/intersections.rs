@@ -22,7 +22,7 @@ pub const RAY_INTERSECT_EPSILON: f32 = 0.0001;
 pub fn inplace_ray_triangle_intersect(tri: &Triangle, ray: &mut Ray) {
     let edge1 = tri.vertex1 - tri.vertex0;
     let edge2 = tri.vertex2 - tri.vertex0;
-    let h = ray.direction.cross(edge2);
+    let h = ray.direction().cross(edge2);
     let a = edge1.dot(h);
     if a > -RAY_INTERSECT_EPSILON && a < RAY_INTERSECT_EPSILON {
         // ray parallel to triangle
@@ -35,7 +35,7 @@ pub fn inplace_ray_triangle_intersect(tri: &Triangle, ray: &mut Ray) {
         return;
     }
     let q = s.cross(edge1);
-    let v = f * ray.direction.dot(q);
+    let v = f * ray.direction().dot(q);
     if v < 0.0 || u + v > 1.0 {
         return;
     }
@@ -104,8 +104,8 @@ mod tests {
 
 pub fn aabb_slab_test(aabb: &AABB, ray: &Ray) -> bool {
     assert!(aabb.is_valid(), "This test doesn't work with invalid boxes");
-    let t1 = (aabb.min - ray.origin) / ray.direction;
-    let t2 = (aabb.max - ray.origin) / ray.direction;
+    let t1 = (aabb.min - ray.origin) * ray.direction_recip();
+    let t2 = (aabb.max - ray.origin) * ray.direction_recip();
 
     let tmin = t1.min(t2);
     let tmax = t1.max(t2);
@@ -125,8 +125,8 @@ impl FastRayIntersect for AABB {
 
 pub fn aabb_slab_distance(aabb: &AABB, ray: &Ray) -> f32 {
     assert!(aabb.is_valid(), "This test doesn't work with invalid boxes");
-    let t1 = (aabb.min - ray.origin) / ray.direction;
-    let t2 = (aabb.max - ray.origin) / ray.direction;
+    let t1 = (aabb.min - ray.origin) * ray.direction_recip();
+    let t2 = (aabb.max - ray.origin) * ray.direction_recip();
 
     let tmin = t1.min(t2);
     let tmax = t1.max(t2);

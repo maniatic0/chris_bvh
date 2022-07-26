@@ -27,6 +27,8 @@ mod benchmarks {
 
     static RESOLUTION_X: i32 = 640;
     static RESOLUTION_Y: i32 = 640;
+    static RESOLUTION_STEP_X: i32 = 4;
+    static RESOLUTION_STEP_Y: i32 = 4;
 
     #[bench]
     fn no_bvh(b: &mut Bencher) {
@@ -42,17 +44,23 @@ mod benchmarks {
             .collect();
 
         b.iter(|| {
-            for y in 0..RESOLUTION_Y {
-                for x in 0..RESOLUTION_X {
-                    let pixel_pos: Vec3A = P0
-                        + (P1 - P0) * (x as f32 / RESOLUTION_X as f32)
-                        + (P2 - P0) * (y as f32 / RESOLUTION_Y as f32);
-                    let mut ray =
-                        Ray::infinite_ray(CAM_POS, (pixel_pos - CAM_POS).normalize_or_zero());
+            for y in (0..RESOLUTION_Y).step_by(RESOLUTION_STEP_X as usize) {
+                for x in (0..RESOLUTION_X).step_by(RESOLUTION_STEP_Y as usize) {
+                    for v in 0..RESOLUTION_STEP_X {
+                        for u in 0..RESOLUTION_STEP_Y {
+                            let pixel_pos: Vec3A = P0
+                                + (P1 - P0) * ((x + v) as f32 / RESOLUTION_X as f32)
+                                + (P2 - P0) * ((y + u) as f32 / RESOLUTION_Y as f32);
+                            let mut ray = Ray::infinite_ray(
+                                CAM_POS,
+                                (pixel_pos - CAM_POS).normalize_or_zero(),
+                            );
 
-                    triangles.iter().for_each(|tri| {
-                        tri.inplace_ray_intersect(&mut ray);
-                    });
+                            triangles.iter().for_each(|tri| {
+                                tri.inplace_ray_intersect(&mut ray);
+                            });
+                        }
+                    }
                 }
             }
         });
@@ -76,15 +84,21 @@ mod benchmarks {
         bvh.build();
 
         b.iter(|| {
-            for y in 0..RESOLUTION_Y {
-                for x in 0..RESOLUTION_X {
-                    let pixel_pos: Vec3A = P0
-                        + (P1 - P0) * (x as f32 / RESOLUTION_X as f32)
-                        + (P2 - P0) * (y as f32 / RESOLUTION_Y as f32);
-                    let mut ray =
-                        Ray::infinite_ray(CAM_POS, (pixel_pos - CAM_POS).normalize_or_zero());
+            for y in (0..RESOLUTION_Y).step_by(RESOLUTION_STEP_X as usize) {
+                for x in (0..RESOLUTION_X).step_by(RESOLUTION_STEP_Y as usize) {
+                    for v in 0..RESOLUTION_STEP_X {
+                        for u in 0..RESOLUTION_STEP_Y {
+                            let pixel_pos: Vec3A = P0
+                                + (P1 - P0) * ((x + v) as f32 / RESOLUTION_X as f32)
+                                + (P2 - P0) * ((y + u) as f32 / RESOLUTION_Y as f32);
+                            let mut ray = Ray::infinite_ray(
+                                CAM_POS,
+                                (pixel_pos - CAM_POS).normalize_or_zero(),
+                            );
 
-                    bvh.inplace_ray_intersect(&mut ray);
+                            bvh.inplace_ray_intersect(&mut ray);
+                        }
+                    }
                 }
             }
         });
@@ -138,15 +152,21 @@ mod benchmarks {
         bvh.build();
 
         b.iter(|| {
-            for y in 0..RESOLUTION_Y {
-                for x in 0..RESOLUTION_X {
-                    let pixel_pos: Vec3A = P0
-                        + (P1 - P0) * (x as f32 / RESOLUTION_X as f32)
-                        + (P2 - P0) * (y as f32 / RESOLUTION_Y as f32);
-                    let mut ray =
-                        Ray::infinite_ray(CAM_POS, (pixel_pos - CAM_POS).normalize_or_zero());
+            for y in (0..RESOLUTION_Y).step_by(RESOLUTION_STEP_X as usize) {
+                for x in (0..RESOLUTION_X).step_by(RESOLUTION_STEP_Y as usize) {
+                    for v in 0..RESOLUTION_STEP_X {
+                        for u in 0..RESOLUTION_STEP_Y {
+                            let pixel_pos: Vec3A = P0
+                                + (P1 - P0) * ((x + v) as f32 / RESOLUTION_X as f32)
+                                + (P2 - P0) * ((y + u) as f32 / RESOLUTION_Y as f32);
+                            let mut ray = Ray::infinite_ray(
+                                CAM_POS,
+                                (pixel_pos - CAM_POS).normalize_or_zero(),
+                            );
 
-                    bvh.inplace_ray_intersect(&mut ray);
+                            bvh.inplace_ray_intersect(&mut ray);
+                        }
+                    }
                 }
             }
         });
