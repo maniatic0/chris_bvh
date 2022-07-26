@@ -1,6 +1,9 @@
 extern crate glam;
 
-use crate::{InPlaceRayIntersect, Ray, Triangle, AABB, FastRayIntersect};
+use strum::EnumIter;
+use strum::IntoEnumIterator;
+
+use crate::{FastRayIntersect, InPlaceRayIntersect, Ray, Triangle, AABB};
 
 pub trait BVH: InPlaceRayIntersect {}
 
@@ -22,7 +25,7 @@ impl Default for SimpleBVHNode {
 }
 
 /// 3D Axis
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, EnumIter)]
 pub enum Axis {
     X = 0,
     Y = 1,
@@ -30,8 +33,16 @@ pub enum Axis {
 }
 
 impl SimpleBVHNode {
-    /// Get split plane from a node. It is the longest extent of the aabb
-    pub fn get_split_plane(&self) -> (Axis, f32) {
+    /// Get split plane from a node using the longest extent of the aabb. Returns the axis, the split position and if the node should be split
+    pub fn get_longest_extent_split_plane(
+        &self,
+        _triangles: &Vec<Triangle>,
+        _triangles_id: &Vec<u32>,
+    ) -> (Axis, f32, bool) {
+        if self.prim_count <= 2 {
+            return (Axis::X, f32::INFINITY, false);
+        }
+
         let extent = self.aabb.max - self.aabb.min;
         let mut axis = Axis::X;
         if extent.y > extent.x {
@@ -41,7 +52,81 @@ impl SimpleBVHNode {
             axis = Axis::Z;
         }
         let split_pos = self.aabb.min[axis as usize] + extent[axis as usize] * 0.5;
-        (axis, split_pos)
+        (axis, split_pos, true)
+    }
+
+    /// Get split plane from a node using the SAH strategy. Returns the axis, the split position and if the node should be split
+    pub fn get_sah_split_plane(
+        &self,
+        triangles: &Vec<Triangle>,
+        triangles_id: &Vec<u32>,
+    ) -> (Axis, f32, bool) {
+        let mut best_axis = Axis::X;
+        let mut best_pos: f32 = 0.0;
+        let mut best_cost = f32::INFINITY;
+
+        let first_prim = self.left_first as usize;
+        let prim_count = self.prim_count as usize;
+
+        for axis in Axis::iter() {
+            for i in 0..prim_count {
+                let triangle = &triangles[triangles_id[first_prim + i] as usize];
+                let candidate_pos = triangle.centroid[axis as usize];
+                let cost = self.evaluate_sah(triangles, triangles_id, axis, candidate_pos);
+                if cost < best_cost {
+                    best_pos = candidate_pos;
+                    best_axis = axis;
+                    best_cost = cost;
+                }
+            }
+        }
+
+        if best_cost >= self.compute_sah() {
+            return (Axis::X, f32::INFINITY, false);
+        }
+
+        return (best_axis, best_pos, true);
+    }
+
+    /// Compute the SAH cost of this node
+    #[inline]
+    pub fn compute_sah(&self) -> f32 {
+        self.prim_count as f32 * self.aabb.area()
+    }
+
+    /// Evaluate the SAH heuristic code at a position
+    fn evaluate_sah(
+        &self,
+        triangles: &Vec<Triangle>,
+        triangles_id: &Vec<u32>,
+        axis: Axis,
+        pos: f32,
+    ) -> f32 {
+        // determine triangle counts and bounds for this split candidate
+        let mut left_box: AABB = Default::default();
+        let mut right_box: AABB = Default::default();
+        let mut left_count = 0;
+        let mut right_count = 0;
+
+        let first_prim = self.left_first as usize;
+        let prim_count = self.prim_count as usize;
+
+        for i in 0..prim_count {
+            let triangle = &triangles[triangles_id[first_prim + i] as usize];
+            if triangle.centroid[axis as usize] < pos {
+                left_count += 1;
+                left_box.grow(triangle.vertex0);
+                left_box.grow(triangle.vertex1);
+                left_box.grow(triangle.vertex2);
+            } else {
+                right_count += 1;
+                right_box.grow(triangle.vertex0);
+                right_box.grow(triangle.vertex1);
+                right_box.grow(triangle.vertex2);
+            }
+        }
+        let cost = left_count as f32 * left_box.area() + right_count as f32 * right_box.area();
+        return if cost > 0.0 { cost } else { f32::INFINITY };
     }
 
     #[inline]
@@ -129,7 +214,7 @@ impl SimpleBVH {
         self.nodes.resize(
             {
                 if tri_count > 0 {
-                    2 * tri_count - 1
+                    2 * tri_count // we use 2 * N as node[1] is empty to make the caches fit
                 } else {
                     1
                 }
@@ -165,15 +250,17 @@ impl SimpleBVH {
         let node = &mut self.nodes[node_id as usize];
         assert!(node.is_leaf(), "Not valid for internal nodes");
 
-        if node.prim_count <= 2 {
+        let (axis, split_pos, should_split) =
+            node.get_sah_split_plane(&self.triangles, &self.triangles_id);
+
+        if !should_split {
             return;
         }
 
-        let (axis, split_pos) = node.get_split_plane();
-        let axis = axis as usize;
-
         // Quick partition
         // j might go below 0 in the case i == 0
+        let axis = axis as usize;
+
         let mut i = node.first_prim() as isize;
         let mut j = i + node.prim_count as isize - 1;
         while i <= j {
@@ -203,6 +290,8 @@ impl SimpleBVH {
         let node_prim_count = node.prim_count; // it is lost after prim_count = 0
 
         node.setup_left_child(left_child_idx as u32);
+
+        assert!(left_count < node_prim_count as usize, "No empty childs");
 
         self.nodes[left_child_idx].setup_prims(node_first_prim, left_count as u32);
         self.nodes[right_child_idx].setup_prims(i as u32, node_prim_count - left_count as u32);

@@ -8,5 +8,6 @@ edition = "2021"
 [dependencies]
 rand = { version = "*" }
 bytemuck = { version = "*" }
-approx = { version = "*" } # Testing
+approx = { version = "*" }                                          # Testing
 glam = { version = "*", features = ["approx", "bytemuck", "rand"] }
+strum = { version = "*", features = ["derive"] }
