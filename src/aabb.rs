@@ -1,3 +1,7 @@
+pub trait Grow<T> {
+    fn grow(&mut self, object: T);
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct AABB {
     pub min: glam::Vec3A,
@@ -14,20 +18,6 @@ impl Default for AABB {
 }
 
 impl AABB {
-    /// Grow the box to contain a point
-    #[inline]
-    pub fn grow(&mut self, point: glam::Vec3A) {
-        self.max = self.max.max(point);
-        self.min = self.min.min(point);
-    }
-
-    /// Grow the box to contain another box
-    #[inline]
-    pub fn grow_aabb(&mut self, aabb: &AABB) {
-        self.grow(aabb.min);
-        self.grow(aabb.max);
-    }
-
     /// If the AABB is valid (min <= max)
     #[inline]
     pub fn is_valid(&self) -> bool {
@@ -40,5 +30,23 @@ impl AABB {
 
     pub fn area(&self) -> f32 {
         self.extent().length_squared()
+    }
+}
+
+impl Grow<glam::Vec3A> for AABB {
+    /// Grow the box to contain a point
+    #[inline]
+    fn grow(&mut self, point: glam::Vec3A) {
+        self.max = self.max.max(point);
+        self.min = self.min.min(point);
+    }
+}
+
+impl Grow<&AABB> for AABB {
+    /// Grow the box to contain another box
+    #[inline]
+    fn grow(&mut self, aabb: &AABB) {
+        self.grow(aabb.min);
+        self.grow(aabb.max);
     }
 }

@@ -4,7 +4,8 @@ use strum::EnumIter;
 use strum::IntoEnumIterator;
 
 use crate::{
-    FastRayIntersect, InPlaceRayIntersect, Ray, RayIntersect, Triangle, AABB, RAY_INTERSECT_EPSILON,
+    FastRayIntersect, Grow, InPlaceRayIntersect, Ray, RayIntersect, Triangle, AABB,
+    RAY_INTERSECT_EPSILON,
 };
 
 use std::cmp::min;
@@ -181,12 +182,12 @@ impl SimpleBVHNode {
             for i in 0..(INTERVAL_NUM - 1) {
                 left_sum += bins[i].tri_count;
                 left_count[i] = left_sum;
-                left_box.grow_aabb(&bins[i].bounds);
+                left_box.grow(&bins[i].bounds);
                 left_area[i] = left_box.area();
 
                 right_sum += bins[INTERVAL_NUM - 1 - i].tri_count;
                 right_count[INTERVAL_NUM - 2 - i] = right_sum;
-                right_box.grow_aabb(&bins[INTERVAL_NUM - 1 - i].bounds);
+                right_box.grow(&bins[INTERVAL_NUM - 1 - i].bounds);
                 right_area[INTERVAL_NUM - 2 - i] = right_box.area();
             }
 
