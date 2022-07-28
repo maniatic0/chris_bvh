@@ -403,7 +403,7 @@ where
             self.triangles_id[i] = i as u32;
         }
 
-        self.root_node_id = 0;
+        self.root_node_id = 1;
         self.nodes_used = 2; // skip one for cache alignment
 
         self.nodes.resize(
@@ -497,6 +497,33 @@ where
         self.build_node_bounds(triangles, right_child_idx);
         self.subdivide(triangles, left_child_idx);
         self.subdivide(triangles, right_child_idx);
+    }
+
+    pub fn refit(&mut self) {
+        let triangles_arc = self.triangles.clone();
+        let triangle_ref = triangles_arc.read();
+        let triangles: &Vec<Triangle> = &triangle_ref;
+
+        if  triangles.len() == 0 {
+            return;
+        }
+
+        for i in (self.root_node_id..self.nodes_used).rev() {
+            let node = &self.nodes[i as usize];
+            if node.is_leaf() {
+                self.build_node_bounds(triangles, i);
+                continue;
+            }
+
+            let node_left_child = node.left_child(); 
+            assert_eq!(node_left_child + 1, node.right_child());
+
+            // this is dumb but required by rust. See how to do this properly
+            let (nodes, children) = self.nodes.split_at_mut(node_left_child as usize);
+
+            nodes[i as usize].aabb.grow(&children[0].aabb); // Left Child
+            nodes[i as usize].aabb.grow(&children[1].aabb); // Right Child
+        }
     }
 
     fn inplace_intersect_ray(&self, triangles: &Vec<Triangle>, node_id: u32, ray: &mut Ray) {
