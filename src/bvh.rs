@@ -8,10 +8,10 @@ use crate::{
     RAY_INTERSECT_EPSILON,
 };
 
-use std::cell::RefCell;
+use parking_lot::RwLock;
 use std::cmp::min;
 use std::marker::PhantomData;
-use std::rc::Rc;
+use std::sync::Arc;
 
 pub trait BVH: InPlaceRayIntersect {}
 
@@ -360,7 +360,7 @@ pub struct SimpleBVH<Strat = CompiledBinnedSAHStrategy>
 where
     Strat: SplitPlaneStrategy,
 {
-    pub triangles: Rc<RefCell<Vec<Triangle>>>,
+    pub triangles: Arc<RwLock<Vec<Triangle>>>,
     triangles_id: Vec<u32>,
     nodes: Vec<SimpleBVHNode>,
     root_node_id: u32,
@@ -389,13 +389,14 @@ where
     Strat: SplitPlaneStrategy,
 {
     #[inline]
-    pub fn init(&mut self, triangles: Rc<RefCell<Vec<Triangle>>>) {
+    pub fn init(&mut self, triangles: Arc<RwLock<Vec<Triangle>>>) {
         self.triangles = triangles;
     }
 
     pub fn build(&mut self) {
-        let triangle_ref = self.triangles.clone();
-        let triangles: &Vec<Triangle> = &triangle_ref.borrow();
+        let triangles_arc = self.triangles.clone();
+        let triangle_ref = triangles_arc.read();
+        let triangles: &Vec<Triangle> = &triangle_ref;
         let tri_count = triangles.len();
         self.triangles_id.resize(tri_count, Default::default());
         for i in 0..tri_count {
@@ -574,7 +575,8 @@ where
 {
     #[inline]
     fn inplace_ray_intersect(&self, ray: &mut Ray) {
-        let triangles: &Vec<Triangle> = &self.triangles.borrow();
+        let triangle_ref = self.triangles.read();
+        let triangles: &Vec<Triangle> = &triangle_ref;
         if triangles.len() > 0 {
             self.inplace_intersect_ray(triangles, self.root_node_id, ray);
         }
@@ -586,7 +588,9 @@ impl BVH for SimpleBVH {}
 #[cfg(test)]
 mod tests {
 
-    use std::{cell::RefCell, iter, rc::Rc};
+    use std::{iter, sync::Arc};
+
+    use parking_lot::RwLock;
 
     use rand::{prelude::SliceRandom, thread_rng, Rng};
 
@@ -604,7 +608,7 @@ mod tests {
 
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
 
-        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(vec![]));
+        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(vec![]));
         bvh.init(triangles);
         bvh.build();
 
@@ -627,7 +631,7 @@ mod tests {
 
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
 
-        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(vec![tri]));
+        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(vec![tri]));
 
         bvh.init(triangles);
         bvh.build();
@@ -655,7 +659,7 @@ mod tests {
 
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
 
-        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(vec![tri]));
+        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(vec![tri]));
 
         bvh.init(triangles);
         bvh.build();
@@ -678,9 +682,9 @@ mod tests {
             })
             .collect();
 
-        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(triangles));
+        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
-        let triangles_ref = triangles.borrow();
+        let triangles_ref = triangles.read();
         let tri = triangles_ref.choose(&mut rng).unwrap();
 
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());

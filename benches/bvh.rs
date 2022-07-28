@@ -6,17 +6,20 @@ mod benchmarks {
     use test::Bencher;
 
     use std::{
-        cell::RefCell,
         fs::File,
         io::{BufRead, BufReader},
         iter,
-        path::PathBuf,
-        rc::Rc,
+        path::{Path, PathBuf},
+        sync::Arc,
     };
+
+    use parking_lot::RwLock;
 
     use rand::{thread_rng, Rng};
 
     use glam::Vec3A;
+
+    use rayon::{prelude::*, ThreadPoolBuilder};
 
     use chris_bvh::*;
 
@@ -44,7 +47,8 @@ mod benchmarks {
                 Triangle::new(v0, v1, v2)
             })
             .collect();
-
+        
+        b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
         b.iter(|| {
             for y in (0..RESOLUTION_Y).step_by(RESOLUTION_STEP_X as usize) {
                 for x in (0..RESOLUTION_X).step_by(RESOLUTION_STEP_Y as usize) {
@@ -81,12 +85,13 @@ mod benchmarks {
             })
             .collect();
 
-        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(triangles));
+        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
         bvh.init(triangles);
         bvh.build();
-
+        
+        b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
         b.iter(|| {
             for y in (0..RESOLUTION_Y).step_by(RESOLUTION_STEP_X as usize) {
                 for x in (0..RESOLUTION_X).step_by(RESOLUTION_STEP_Y as usize) {
@@ -108,11 +113,11 @@ mod benchmarks {
         });
     }
 
-    fn load_unity_model() -> Vec<Triangle> {
-        let mut unity_file = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        unity_file.push("assets/models/unity.tri");
-
-        let mut f = BufReader::new(File::open(unity_file).unwrap());
+    fn load_tri_model<P>(path: P) -> Vec<Triangle>
+    where
+        P: AsRef<Path>,
+    {
+        let mut f = BufReader::new(File::open(path).unwrap());
 
         // read the first line and extract the number from it
         let mut num_line = String::new();
@@ -136,10 +141,17 @@ mod benchmarks {
         model
     }
 
+    fn load_unity_model() -> Vec<Triangle> {
+        let mut unity_file = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        unity_file.push("assets/models/unity.tri");
+
+        load_tri_model(unity_file)
+    }
+
     #[bench]
     fn simple_bvh_unity_build(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_unity_model();
-        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(triangles));
+        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
         bvh.init(triangles);
@@ -152,12 +164,13 @@ mod benchmarks {
     #[bench]
     fn simple_bvh_unity_intersect(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_unity_model();
-        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(triangles));
+        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
         bvh.init(triangles);
         bvh.build();
 
+        b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
         b.iter(|| {
             for y in (0..RESOLUTION_Y).step_by(RESOLUTION_STEP_X as usize) {
                 for x in (0..RESOLUTION_X).step_by(RESOLUTION_STEP_Y as usize) {
@@ -176,6 +189,106 @@ mod benchmarks {
                     }
                 }
             }
+        });
+    }
+
+    fn load_bigben_model() -> Vec<Triangle> {
+        let mut bigben_file = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        bigben_file.push("assets/models/bigben.tri");
+
+        load_tri_model(bigben_file)
+    }
+
+    #[bench]
+    fn simple_bvh_bigben_build(b: &mut Bencher) {
+        let triangles: Vec<Triangle> = load_bigben_model();
+        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
+
+        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        bvh.init(triangles);
+
+        b.iter(|| {
+            bvh.build();
+        });
+    }
+
+    #[bench]
+    fn simple_bvh_bigben_intersect_singlethread(b: &mut Bencher) {
+        let triangles: Vec<Triangle> = load_bigben_model();
+        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
+
+        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        bvh.init(triangles);
+        bvh.build();
+
+        let tile_num = (RESOLUTION_Y / RESOLUTION_STEP_Y) * (RESOLUTION_X / RESOLUTION_STEP_X);
+
+        let tile_width = RESOLUTION_X / RESOLUTION_STEP_X;
+
+        let p0 = Vec3A::new( -1.0, 1.0, 2.0 );
+        let p1 = Vec3A::new( 1.0, 1.0, 2.0 );
+        let p2 = Vec3A::new( -1.0, -1.0, 2.0 );
+
+        b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
+        b.iter(|| {
+            (0..tile_num).into_iter().for_each(|tile| {
+                let x = tile % tile_width;
+                let y = tile / tile_width;
+
+                for v in 0..RESOLUTION_STEP_X {
+                    for u in 0..RESOLUTION_STEP_Y {
+                        let pixel_pos: Vec3A = P0
+                            + (p1 - p0) * ((x + v) as f32 / RESOLUTION_X as f32)
+                            + (p2 - p0) * ((y + u) as f32 / RESOLUTION_Y as f32);
+                        let mut ray =
+                            Ray::infinite_ray(CAM_POS, (pixel_pos - CAM_POS).normalize_or_zero());
+
+                        bvh.inplace_ray_intersect(&mut ray);
+                    }
+                }
+            });
+        });
+    }
+
+    #[bench]
+    fn simple_bvh_bigben_intersect_multithread(b: &mut Bencher) {
+        let triangles: Vec<Triangle> = load_bigben_model();
+        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
+
+        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        bvh.init(triangles);
+        bvh.build();
+
+        let tile_num = (RESOLUTION_Y / RESOLUTION_STEP_Y) * (RESOLUTION_X / RESOLUTION_STEP_X);
+
+        let tile_width = RESOLUTION_X / RESOLUTION_STEP_X;
+
+        let p0 = Vec3A::new( -1.0, 1.0, 2.0 );
+        let p1 = Vec3A::new( 1.0, 1.0, 2.0 );
+        let p2 = Vec3A::new( -1.0, -1.0, 2.0 );
+
+        let pool = ThreadPoolBuilder::new().num_threads(2).build().unwrap();
+
+        b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
+        b.iter(|| {
+            pool.install(|| {
+                (0..tile_num).into_par_iter().for_each(|tile| {
+                    let x = tile % tile_width;
+                    let y = tile / tile_width;
+    
+                    for v in 0..RESOLUTION_STEP_X {
+                        for u in 0..RESOLUTION_STEP_Y {
+                            let pixel_pos: Vec3A = P0
+                                + (p1 - p0) * ((x + v) as f32 / RESOLUTION_X as f32)
+                                + (p2 - p0) * ((y + u) as f32 / RESOLUTION_Y as f32);
+                            let mut ray =
+                                Ray::infinite_ray(CAM_POS, (pixel_pos - CAM_POS).normalize_or_zero());
+    
+                            bvh.inplace_ray_intersect(&mut ray);
+                        }
+                    }
+                });
+            });
         });
     }
 }
