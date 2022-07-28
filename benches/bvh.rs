@@ -6,10 +6,12 @@ mod benchmarks {
     use test::Bencher;
 
     use std::{
+        cell::RefCell,
         fs::File,
         io::{BufRead, BufReader},
         iter,
         path::PathBuf,
+        rc::Rc,
     };
 
     use rand::{thread_rng, Rng};
@@ -79,8 +81,10 @@ mod benchmarks {
             })
             .collect();
 
+        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(triangles));
+
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
-        bvh.init(triangles.clone());
+        bvh.init(triangles);
         bvh.build();
 
         b.iter(|| {
@@ -135,9 +139,10 @@ mod benchmarks {
     #[bench]
     fn simple_bvh_unity_build(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_unity_model();
+        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(triangles));
 
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
-        bvh.init(triangles.clone());
+        bvh.init(triangles);
 
         b.iter(|| {
             bvh.build();
@@ -147,9 +152,10 @@ mod benchmarks {
     #[bench]
     fn simple_bvh_unity_intersect(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_unity_model();
+        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(triangles));
 
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
-        bvh.init(triangles.clone());
+        bvh.init(triangles);
         bvh.build();
 
         b.iter(|| {

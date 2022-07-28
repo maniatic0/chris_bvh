@@ -8,8 +8,10 @@ use crate::{
     RAY_INTERSECT_EPSILON,
 };
 
+use std::cell::RefCell;
 use std::cmp::min;
 use std::marker::PhantomData;
+use std::rc::Rc;
 
 pub trait BVH: InPlaceRayIntersect {}
 
@@ -358,7 +360,7 @@ pub struct SimpleBVH<Strat = CompiledBinnedSAHStrategy>
 where
     Strat: SplitPlaneStrategy,
 {
-    pub triangles: Vec<Triangle>,
+    pub triangles: Rc<RefCell<Vec<Triangle>>>,
     triangles_id: Vec<u32>,
     nodes: Vec<SimpleBVHNode>,
     root_node_id: u32,
@@ -386,12 +388,15 @@ impl<Strat> SimpleBVH<Strat>
 where
     Strat: SplitPlaneStrategy,
 {
-    pub fn init(&mut self, triangles: Vec<Triangle>) {
+    #[inline]
+    pub fn init(&mut self, triangles: Rc<RefCell<Vec<Triangle>>>) {
         self.triangles = triangles;
     }
 
     pub fn build(&mut self) {
-        let tri_count = self.triangles.len();
+        let triangle_ref = self.triangles.clone();
+        let triangles: &Vec<Triangle> = &triangle_ref.borrow();
+        let tri_count = triangles.len();
         self.triangles_id.resize(tri_count, Default::default());
         for i in 0..tri_count {
             self.triangles_id[i] = i as u32;
@@ -416,31 +421,31 @@ where
         root.aabb = Default::default();
 
         if tri_count > 0 {
-            self.build_node_bounds(self.root_node_id);
-            self.subdivide(self.root_node_id);
+            self.build_node_bounds(triangles, self.root_node_id);
+            self.subdivide(triangles, self.root_node_id);
         }
     }
 
-    fn build_node_bounds(&mut self, node_id: u32) {
+    fn build_node_bounds(&mut self, triangles: &Vec<Triangle>, node_id: u32) {
         let node = &mut self.nodes[node_id as usize];
         assert!(node.is_leaf(), "Not valid for internal nodes");
         node.aabb = Default::default();
 
         let first: usize = node.first_prim() as usize;
         for i in 0..node.prim_count {
-            let tri = self.triangles[self.triangles_id[first + i as usize] as usize];
+            let tri = triangles[self.triangles_id[first + i as usize] as usize];
             node.aabb.grow(tri.vertex0);
             node.aabb.grow(tri.vertex1);
             node.aabb.grow(tri.vertex2);
         }
     }
 
-    fn subdivide(&mut self, node_id: u32) {
+    fn subdivide(&mut self, triangles: &Vec<Triangle>, node_id: u32) {
         let node = &mut self.nodes[node_id as usize];
         assert!(node.is_leaf(), "Not valid for internal nodes");
 
         let (axis, split_pos, should_split) =
-            Strat::get_split_plane(node, &self.triangles, &self.triangles_id);
+            Strat::get_split_plane(node, &triangles, &self.triangles_id);
 
         if !should_split {
             return;
@@ -453,7 +458,7 @@ where
         let mut i = node.first_prim() as isize;
         let mut j = i + node.prim_count as isize - 1;
         while i <= j {
-            if self.triangles[self.triangles_id[i as usize] as usize].centroid[axis] < split_pos {
+            if triangles[self.triangles_id[i as usize] as usize].centroid[axis] < split_pos {
                 i += 1;
             } else {
                 self.triangles_id.swap(i as usize, j as usize);
@@ -487,13 +492,13 @@ where
 
         let left_child_idx = left_child_idx as u32;
         let right_child_idx = right_child_idx as u32;
-        self.build_node_bounds(left_child_idx);
-        self.build_node_bounds(right_child_idx);
-        self.subdivide(left_child_idx);
-        self.subdivide(right_child_idx);
+        self.build_node_bounds(triangles, left_child_idx);
+        self.build_node_bounds(triangles, right_child_idx);
+        self.subdivide(triangles, left_child_idx);
+        self.subdivide(triangles, right_child_idx);
     }
 
-    fn inplace_intersect_ray(&self, node_id: u32, ray: &mut Ray) {
+    fn inplace_intersect_ray(&self, triangles: &Vec<Triangle>, node_id: u32, ray: &mut Ray) {
         let mut node = Option::Some(&self.nodes[node_id as usize]);
 
         let node_ref = node.unwrap();
@@ -511,7 +516,7 @@ where
                 let first_prim = node_ref.first_prim();
 
                 for i in 0..node_ref.prim_count {
-                    self.triangles[self.triangles_id[(first_prim + i) as usize] as usize]
+                    triangles[self.triangles_id[(first_prim + i) as usize] as usize]
                         .inplace_ray_intersect(ray);
                 }
 
@@ -569,8 +574,9 @@ where
 {
     #[inline]
     fn inplace_ray_intersect(&self, ray: &mut Ray) {
-        if self.triangles.len() > 0 {
-            self.inplace_intersect_ray(self.root_node_id, ray);
+        let triangles: &Vec<Triangle> = &self.triangles.borrow();
+        if triangles.len() > 0 {
+            self.inplace_intersect_ray(triangles, self.root_node_id, ray);
         }
     }
 }
@@ -580,7 +586,7 @@ impl BVH for SimpleBVH {}
 #[cfg(test)]
 mod tests {
 
-    use std::iter;
+    use std::{cell::RefCell, iter, rc::Rc};
 
     use rand::{prelude::SliceRandom, thread_rng, Rng};
 
@@ -597,7 +603,9 @@ mod tests {
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, Vec3A::X);
 
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
-        bvh.init(vec![]);
+
+        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(vec![]));
+        bvh.init(triangles);
         bvh.build();
 
         bvh.inplace_ray_intersect(&mut ray);
@@ -618,7 +626,10 @@ mod tests {
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
-        bvh.init(vec![tri]);
+
+        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(vec![tri]));
+
+        bvh.init(triangles);
         bvh.build();
 
         bvh.inplace_ray_intersect(&mut ray);
@@ -643,7 +654,10 @@ mod tests {
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, -tri.centroid.normalize_or_zero());
 
         let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
-        bvh.init(vec![tri]);
+
+        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(vec![tri]));
+
+        bvh.init(triangles);
         bvh.build();
 
         bvh.inplace_ray_intersect(&mut ray);
@@ -664,7 +678,10 @@ mod tests {
             })
             .collect();
 
-        let tri = triangles.choose(&mut rng).unwrap();
+        let triangles: Rc<RefCell<Vec<Triangle>>> = Rc::new(RefCell::new(triangles));
+
+        let triangles_ref = triangles.borrow();
+        let tri = triangles_ref.choose(&mut rng).unwrap();
 
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
@@ -678,7 +695,7 @@ mod tests {
 
         let mut ray2 = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
-        triangles.iter().for_each(|tri| {
+        triangles_ref.iter().for_each(|tri| {
             tri.inplace_ray_intersect(&mut ray2);
         });
 
