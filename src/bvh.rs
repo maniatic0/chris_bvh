@@ -499,12 +499,98 @@ where
         self.subdivide(triangles, right_child_idx);
     }
 
+    /// Split a node to get the node and both children as mutable
+    ///
+    /// # Return
+    ///
+    /// (Node, Left Child, Right Child)
+    ///
+    /// # Panic
+    /// This can panic if the node is a leaf or if the children are wrongly setup
+    #[allow(dead_code)]
+    #[inline]
+    fn split_mut_node_at_mut(
+        &mut self,
+        node_id: u32,
+    ) -> (&mut SimpleBVHNode, &mut SimpleBVHNode, &mut SimpleBVHNode) {
+        let node_id = node_id as usize;
+        let node = &self.nodes[node_id];
+        assert!(
+            !node.is_leaf(),
+            "This is only valid if the node is not a leaf"
+        );
+
+        let left_child_id = node.left_child() as usize;
+        let right_child_id = node.right_child() as usize;
+
+        let len = self.nodes.len();
+
+        assert_ne!(node_id, left_child_id);
+        assert_ne!(node_id, right_child_id);
+        assert_ne!(left_child_id, right_child_id);
+        assert!(left_child_id < len);
+        assert!(right_child_id < len);
+
+        let ptr = self.nodes.as_mut_ptr();
+
+        unsafe {
+            (
+                &mut *ptr.add(node_id),
+                &mut *ptr.add(left_child_id),
+                &mut *ptr.add(right_child_id),
+            )
+        }
+    }
+
+    /// Split a node to get the node as mutable and both children as immutable
+    ///
+    /// # Return
+    ///
+    /// (Node, Left Child, Right Child)
+    ///
+    /// # Panic
+    /// This can panic if the node is a leaf or if the children are wrongly setup
+    #[allow(dead_code)]
+    #[inline]
+    fn split_mut_node_at(
+        &mut self,
+        node_id: u32,
+    ) -> (&mut SimpleBVHNode, &SimpleBVHNode, &SimpleBVHNode) {
+        let node_id = node_id as usize;
+        let node = &self.nodes[node_id];
+        assert!(
+            !node.is_leaf(),
+            "This is only valid if the node is not a leaf"
+        );
+
+        let left_child_id = node.left_child() as usize;
+        let right_child_id = node.right_child() as usize;
+
+        let len = self.nodes.len();
+
+        assert_ne!(node_id, left_child_id);
+        assert_ne!(node_id, right_child_id);
+        assert_ne!(left_child_id, right_child_id);
+        assert!(left_child_id < len);
+        assert!(right_child_id < len);
+
+        let ptr = self.nodes.as_mut_ptr();
+
+        unsafe {
+            (
+                &mut *ptr.add(node_id),
+                &*ptr.add(left_child_id),
+                &*ptr.add(right_child_id),
+            )
+        }
+    }
+
     pub fn refit(&mut self) {
         let triangles_arc = self.triangles.clone();
         let triangle_ref = triangles_arc.read();
         let triangles: &Vec<Triangle> = &triangle_ref;
 
-        if  triangles.len() == 0 {
+        if triangles.len() == 0 {
             return;
         }
 
@@ -515,14 +601,10 @@ where
                 continue;
             }
 
-            let node_left_child = node.left_child(); 
-            assert_eq!(node_left_child + 1, node.right_child());
+            let (node, left_child, right_child) = self.split_mut_node_at(i);
 
-            // this is dumb but required by rust. See how to do this properly
-            let (nodes, children) = self.nodes.split_at_mut(node_left_child as usize);
-
-            nodes[i as usize].aabb.grow(&children[0].aabb); // Left Child
-            nodes[i as usize].aabb.grow(&children[1].aabb); // Right Child
+            node.aabb.grow(&left_child.aabb);
+            node.aabb.grow(&right_child.aabb);
         }
     }
 
@@ -722,7 +804,7 @@ mod tests {
 
         bvh.inplace_ray_intersect(&mut ray);
 
-        assert!(ray.distance < tri.centroid.distance(Vec3A::ZERO));
+        assert!(ray.distance <= tri.centroid.distance(Vec3A::ZERO));
 
         let mut ray2 = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
@@ -731,5 +813,75 @@ mod tests {
         });
 
         assert_abs_diff_eq!(ray.distance, ray2.distance, epsilon = RAY_INTERSECT_EPSILON);
+    }
+
+    #[test]
+    fn ray_triangles_refit_intersect() {
+        let mut rng = thread_rng();
+        let triangles: Vec<Triangle> = iter::repeat(0)
+            .take(TRIANGLES_NUM)
+            .map(|_| {
+                let v0 = rng.gen::<Vec3A>() * 9.0 - Vec3A::splat(5.0);
+                let v1 = rng.gen();
+                let v2 = rng.gen();
+                Triangle::new(v0, v1, v2)
+            })
+            .collect();
+
+        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
+
+        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        bvh.init(triangles.clone());
+        bvh.build();
+
+        {
+            let triangles_ref = triangles.read();
+            let tri = triangles_ref.choose(&mut rng).unwrap();
+
+            let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
+
+            bvh.inplace_ray_intersect(&mut ray);
+
+            assert!(ray.distance <= tri.centroid.distance(Vec3A::ZERO));
+
+            let mut ray2 = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
+
+            triangles_ref.iter().for_each(|tri| {
+                tri.inplace_ray_intersect(&mut ray2);
+            });
+
+            assert_abs_diff_eq!(ray.distance, ray2.distance, epsilon = RAY_INTERSECT_EPSILON);
+        }
+
+        {
+            let mut triangles_write_ref = triangles.write();
+            triangles_write_ref.iter_mut().for_each(|tri| {
+                let v0 = rng.gen::<Vec3A>() * 9.0 - Vec3A::splat(5.0);
+                let v1 = rng.gen();
+                let v2 = rng.gen();
+                *tri = Triangle::new(v0, v1, v2)
+            });
+        }
+
+        bvh.refit();
+
+        {
+            let triangles_ref = triangles.read();
+            let tri = triangles_ref.choose(&mut rng).unwrap();
+
+            let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
+
+            bvh.inplace_ray_intersect(&mut ray);
+
+            assert!(ray.distance <= tri.centroid.distance(Vec3A::ZERO));
+
+            let mut ray2 = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
+
+            triangles_ref.iter().for_each(|tri| {
+                tri.inplace_ray_intersect(&mut ray2);
+            });
+
+            assert_abs_diff_eq!(ray.distance, ray2.distance, epsilon = RAY_INTERSECT_EPSILON);
+        }
     }
 }
