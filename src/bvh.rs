@@ -360,7 +360,7 @@ pub struct SimpleBVH<Strat = CompiledBinnedSAHStrategy>
 where
     Strat: SplitPlaneStrategy,
 {
-    pub triangles: Arc<RwLock<Vec<Triangle>>>,
+    triangles: Arc<RwLock<Vec<Triangle>>>,
     triangles_id: Vec<u32>,
     nodes: Vec<SimpleBVHNode>,
     root_node_id: u32,
@@ -409,9 +409,9 @@ where
         self.nodes.resize(
             {
                 if tri_count > 0 {
-                    2 * tri_count // we use 2 * N as node[1] is empty to make the caches fit
+                    2 * tri_count // we use 2 * N as node[0] is empty to make the caches fit
                 } else {
-                    1
+                    2 // we use 2 as node[0] is empty to make the caches fit (in this case to avoid special code)
                 }
             },
             Default::default(),
@@ -674,6 +674,17 @@ where
                     }
                 }
             }
+        }
+    }
+
+    pub fn triangles(&self) -> &Arc<RwLock<Vec<Triangle>>> {
+        &self.triangles
+    }
+
+    #[inline]
+    pub unsafe fn unsafe_inplace_ray_intersect(&self, triangles: &Vec<Triangle>, ray: &mut Ray) {
+        if triangles.len() > 0 {
+            self.inplace_intersect_ray(triangles, self.root_node_id, ray);
         }
     }
 }
