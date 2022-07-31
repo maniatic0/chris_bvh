@@ -31,7 +31,7 @@ pub fn inplace_ray_triangle_intersect(tri: &Triangle, ray: &mut Ray) {
     let f = 1.0 / a;
     let s = ray.origin - tri.vertex0;
     let u = f * s.dot(h);
-    if u < 0.0 || u > 1.0 {
+    if !(0.0..=1.0).contains(&u) {
         return;
     }
     let q = s.cross(edge1);
@@ -113,7 +113,7 @@ pub fn aabb_slab_test(aabb: &AABB, ray: &Ray) -> bool {
     let ttmin = tmin.max_element();
     let ttmax = tmax.min_element();
 
-    return ttmax >= ttmin && ttmin < ray.distance && ttmax > 0.0;
+    ttmax >= ttmin && ttmin < ray.distance && ttmax > 0.0
 }
 
 impl FastRayIntersect for AABB {
@@ -135,9 +135,9 @@ pub fn aabb_slab_distance(aabb: &AABB, ray: &Ray) -> f32 {
     let ttmax = tmax.min_element();
 
     if ttmax >= ttmin && ttmin < ray.distance && ttmax > 0.0 {
-        return ttmin;
+        ttmin
     } else {
-        return f32::INFINITY;
+        f32::INFINITY
     }
 }
 

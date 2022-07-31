@@ -15,21 +15,11 @@ use std::sync::Arc;
 
 pub trait BVH: InPlaceRayIntersect {}
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct SimpleBVHNode {
     pub aabb: AABB,
     left_first: u32,
     pub prim_count: u32,
-}
-
-impl Default for SimpleBVHNode {
-    fn default() -> Self {
-        Self {
-            aabb: Default::default(),
-            left_first: 0,
-            prim_count: 0,
-        }
-    }
 }
 
 /// 3D Axis
@@ -44,8 +34,8 @@ impl SimpleBVHNode {
     /// Get split plane from a node using the longest extent of the aabb. Returns the axis, the split position and if the node should be split
     pub fn get_longest_extent_split_plane(
         &self,
-        _triangles: &Vec<Triangle>,
-        _triangles_id: &Vec<u32>,
+        _triangles: &[Triangle],
+        _triangles_id: &[u32],
     ) -> (Axis, f32, bool) {
         if self.prim_count <= 2 {
             return (Axis::X, f32::INFINITY, false);
@@ -66,8 +56,8 @@ impl SimpleBVHNode {
     /// Get split plane from a node using the SAH strategy. Returns the axis, the split position and if the node should be split
     pub fn get_sah_split_plane(
         &self,
-        triangles: &Vec<Triangle>,
-        triangles_id: &Vec<u32>,
+        triangles: &[Triangle],
+        triangles_id: &[u32],
     ) -> (Axis, f32, bool) {
         let mut best_axis = Axis::X;
         let mut best_pos: f32 = 0.0;
@@ -93,14 +83,14 @@ impl SimpleBVHNode {
             return (Axis::X, f32::INFINITY, false);
         }
 
-        return (best_axis, best_pos, true);
+        (best_axis, best_pos, true)
     }
 
     /// Get split plane from a node using the binned SAH strategy using. Number of intervals set at compile time . Returns the axis, the split position and if the node should be split
     pub fn get_compile_binned_sah_split_plane<const INTERVAL_NUM: usize>(
         &self,
-        triangles: &Vec<Triangle>,
-        triangles_id: &Vec<u32>,
+        triangles: &[Triangle],
+        triangles_id: &[u32],
     ) -> (Axis, f32, bool)
     where
         [f32; INTERVAL_NUM - 1]: Sized,
@@ -125,19 +115,10 @@ impl SimpleBVHNode {
         let bounds_min = bounds_min;
         let bounds_max = bounds_max;
 
-        #[derive(Debug, Clone, Copy)]
+        #[derive(Debug, Clone, Copy, Default)]
         struct Bin {
             pub bounds: AABB,
             pub tri_count: u32,
-        }
-
-        impl Default for Bin {
-            fn default() -> Self {
-                Self {
-                    bounds: Default::default(),
-                    tri_count: 0,
-                }
-            }
         }
 
         for axis in Axis::iter() {
@@ -214,7 +195,7 @@ impl SimpleBVHNode {
             return (Axis::X, f32::INFINITY, false);
         }
 
-        return (best_axis, best_pos, true);
+        (best_axis, best_pos, true)
     }
 
     /// Compute the SAH cost of this node
@@ -226,8 +207,8 @@ impl SimpleBVHNode {
     /// Evaluate the SAH heuristic code at a position
     fn evaluate_sah(
         &self,
-        triangles: &Vec<Triangle>,
-        triangles_id: &Vec<u32>,
+        triangles: &[Triangle],
+        triangles_id: &[u32],
         axis: Axis,
         pos: f32,
     ) -> f32 {
@@ -254,8 +235,14 @@ impl SimpleBVHNode {
                 right_box.grow(triangle.vertex2);
             }
         }
+
         let cost = left_count as f32 * left_box.area() + right_count as f32 * right_box.area();
-        return if cost > 0.0 { cost } else { f32::INFINITY };
+
+        if cost > 0.0 {
+            cost
+        } else {
+            f32::INFINITY
+        }
     }
 
     #[inline]
@@ -309,8 +296,8 @@ pub trait SplitPlaneStrategy {
     /// Get split plane from a node using an stragetgy. Returns the axis, the split position and if the node should be split
     fn get_split_plane(
         node: &SimpleBVHNode,
-        triangles: &Vec<Triangle>,
-        triangles_id: &Vec<u32>,
+        triangles: &[Triangle],
+        triangles_id: &[u32],
     ) -> (Axis, f32, bool);
 }
 
@@ -319,8 +306,8 @@ impl SplitPlaneStrategy for LongestExtentStrategy {
     #[inline(always)]
     fn get_split_plane(
         node: &SimpleBVHNode,
-        triangles: &Vec<Triangle>,
-        triangles_id: &Vec<u32>,
+        triangles: &[Triangle],
+        triangles_id: &[u32],
     ) -> (Axis, f32, bool) {
         node.get_longest_extent_split_plane(triangles, triangles_id)
     }
@@ -331,8 +318,8 @@ impl SplitPlaneStrategy for SAHStrategy {
     #[inline(always)]
     fn get_split_plane(
         node: &SimpleBVHNode,
-        triangles: &Vec<Triangle>,
-        triangles_id: &Vec<u32>,
+        triangles: &[Triangle],
+        triangles_id: &[u32],
     ) -> (Axis, f32, bool) {
         node.get_sah_split_plane(triangles, triangles_id)
     }
@@ -349,8 +336,8 @@ where
     #[inline(always)]
     fn get_split_plane(
         node: &SimpleBVHNode,
-        triangles: &Vec<Triangle>,
-        triangles_id: &Vec<u32>,
+        triangles: &[Triangle],
+        triangles_id: &[u32],
     ) -> (Axis, f32, bool) {
         node.get_compile_binned_sah_split_plane::<INTERVAL_NUM>(triangles, triangles_id)
     }
@@ -396,7 +383,7 @@ where
     pub fn build(&mut self) {
         let triangles_arc = self.triangles.clone();
         let triangle_ref = triangles_arc.read();
-        let triangles: &Vec<Triangle> = &triangle_ref;
+        let triangles: &[Triangle] = &triangle_ref;
         let tri_count = triangles.len();
         self.triangles_id.resize(tri_count, Default::default());
         for i in 0..tri_count {
@@ -427,7 +414,7 @@ where
         }
     }
 
-    fn build_node_bounds(&mut self, triangles: &Vec<Triangle>, node_id: u32) {
+    fn build_node_bounds(&mut self, triangles: &[Triangle], node_id: u32) {
         let node = &mut self.nodes[node_id as usize];
         assert!(node.is_leaf(), "Not valid for internal nodes");
         node.aabb = Default::default();
@@ -441,12 +428,12 @@ where
         }
     }
 
-    fn subdivide(&mut self, triangles: &Vec<Triangle>, node_id: u32) {
+    fn subdivide(&mut self, triangles: &[Triangle], node_id: u32) {
         let node = &mut self.nodes[node_id as usize];
         assert!(node.is_leaf(), "Not valid for internal nodes");
 
         let (axis, split_pos, should_split) =
-            Strat::get_split_plane(node, &triangles, &self.triangles_id);
+            Strat::get_split_plane(node, triangles, &self.triangles_id);
 
         if !should_split {
             return;
@@ -588,9 +575,9 @@ where
     pub fn refit(&mut self) {
         let triangles_arc = self.triangles.clone();
         let triangle_ref = triangles_arc.read();
-        let triangles: &Vec<Triangle> = &triangle_ref;
+        let triangles: &[Triangle] = &triangle_ref;
 
-        if triangles.len() == 0 {
+        if triangles.is_empty() {
             return;
         }
 
@@ -608,7 +595,7 @@ where
         }
     }
 
-    fn inplace_intersect_ray(&self, triangles: &Vec<Triangle>, node_id: u32, ray: &mut Ray) {
+    fn inplace_intersect_ray(&self, triangles: &[Triangle], node_id: u32, ray: &mut Ray) {
         let mut node = Option::Some(&self.nodes[node_id as usize]);
 
         let node_ref = node.unwrap();
@@ -617,7 +604,7 @@ where
         }
 
         let mut stack: [Option<&SimpleBVHNode>; 64] = [Default::default(); 64];
-        let mut stack_ptr = 0 as usize;
+        let mut stack_ptr = 0_usize;
 
         loop {
             let node_ref = node.unwrap();
@@ -681,9 +668,13 @@ where
         &self.triangles
     }
 
+    /// Intersect the BVH and use the triangles from the vector for the leaves
+    ///
+    /// # Safety
+    /// The triangles must be the same as the one stored in the BVH (you can get the Arc-Mutex from the BVH)
     #[inline]
-    pub unsafe fn unsafe_inplace_ray_intersect(&self, triangles: &Vec<Triangle>, ray: &mut Ray) {
-        if triangles.len() > 0 {
+    pub unsafe fn unsafe_inplace_ray_intersect(&self, triangles: &[Triangle], ray: &mut Ray) {
+        if !triangles.is_empty() {
             self.inplace_intersect_ray(triangles, self.root_node_id, ray);
         }
     }
@@ -696,8 +687,8 @@ where
     #[inline]
     fn inplace_ray_intersect(&self, ray: &mut Ray) {
         let triangle_ref = self.triangles.read();
-        let triangles: &Vec<Triangle> = &triangle_ref;
-        if triangles.len() > 0 {
+        let triangles: &[Triangle] = &triangle_ref;
+        if !triangles.is_empty() {
             self.inplace_intersect_ray(triangles, self.root_node_id, ray);
         }
     }
