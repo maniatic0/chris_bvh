@@ -88,9 +88,9 @@ mod benchmarks {
 
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
         b.iter(|| {
@@ -154,11 +154,11 @@ mod benchmarks {
         let triangles: Vec<Triangle> = load_unity_model();
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
 
         b.iter(|| {
-            bvh.build();
+            bvh.build::<CompiledBinnedSAHStrategy>();
         });
     }
 
@@ -167,9 +167,9 @@ mod benchmarks {
         let triangles: Vec<Triangle> = load_unity_model();
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
         b.iter(|| {
@@ -233,11 +233,11 @@ mod benchmarks {
         let triangles: Vec<Triangle> = load_bigben_model();
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
 
         b.iter(|| {
-            bvh.build();
+            bvh.build::<CompiledBinnedSAHStrategy>();
         });
     }
 
@@ -246,9 +246,9 @@ mod benchmarks {
         let triangles: Vec<Triangle> = load_bigben_model();
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         b.iter(|| {
             bvh.refit();
@@ -260,9 +260,9 @@ mod benchmarks {
         let triangles: Vec<Triangle> = load_bigben_model();
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         let tile_num = (RESOLUTION_Y / RESOLUTION_STEP_Y) * (RESOLUTION_X / RESOLUTION_STEP_X);
 
@@ -298,9 +298,9 @@ mod benchmarks {
         let triangles: Vec<Triangle> = load_bigben_model();
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         let tile_num = (RESOLUTION_Y / RESOLUTION_STEP_Y) * (RESOLUTION_X / RESOLUTION_STEP_X);
 
@@ -342,9 +342,9 @@ mod benchmarks {
         let triangles: Vec<Triangle> = load_bigben_model();
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         let tile_num = (RESOLUTION_Y / RESOLUTION_STEP_Y) * (RESOLUTION_X / RESOLUTION_STEP_X);
 
@@ -393,9 +393,9 @@ mod benchmarks {
         let triangles: Vec<Triangle> = load_bigben_model();
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         let tile_num = (RESOLUTION_Y / RESOLUTION_STEP_Y) * (RESOLUTION_X / RESOLUTION_STEP_X);
 

@@ -10,7 +10,6 @@ use crate::{
 
 use parking_lot::RwLock;
 use std::cmp::min;
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 pub trait BVH: InPlaceRayIntersect {}
@@ -343,44 +342,25 @@ where
     }
 }
 
-pub struct SimpleBVH<Strat = CompiledBinnedSAHStrategy>
-where
-    Strat: SplitPlaneStrategy,
-{
+#[derive(Default)]
+pub struct SimpleBVH {
     triangles: Arc<RwLock<Vec<Triangle>>>,
     triangles_id: Vec<u32>,
     nodes: Vec<SimpleBVHNode>,
     root_node_id: u32,
     nodes_used: u32,
-    split_strategy: PhantomData<Strat>,
 }
 
-impl<Strat> Default for SimpleBVH<Strat>
-where
-    Strat: SplitPlaneStrategy,
-{
-    fn default() -> Self {
-        Self {
-            triangles: Default::default(),
-            triangles_id: Default::default(),
-            nodes: Default::default(),
-            root_node_id: 0,
-            nodes_used: 0,
-            split_strategy: Default::default(),
-        }
-    }
-}
-
-impl<Strat> SimpleBVH<Strat>
-where
-    Strat: SplitPlaneStrategy,
-{
+impl SimpleBVH {
     #[inline]
     pub fn init(&mut self, triangles: Arc<RwLock<Vec<Triangle>>>) {
         self.triangles = triangles;
     }
 
-    pub fn build(&mut self) {
+    pub fn build<Strat>(&mut self)
+    where
+        Strat: SplitPlaneStrategy,
+    {
         let triangles_arc = self.triangles.clone();
         let triangle_ref = triangles_arc.read();
         let triangles: &[Triangle] = &triangle_ref;
@@ -410,7 +390,7 @@ where
 
         if tri_count > 0 {
             self.build_node_bounds(triangles, self.root_node_id);
-            self.subdivide(triangles, self.root_node_id);
+            self.subdivide::<Strat>(triangles, self.root_node_id);
         }
     }
 
@@ -428,7 +408,10 @@ where
         }
     }
 
-    fn subdivide(&mut self, triangles: &[Triangle], node_id: u32) {
+    fn subdivide<Strat>(&mut self, triangles: &[Triangle], node_id: u32)
+    where
+        Strat: SplitPlaneStrategy,
+    {
         let node = &mut self.nodes[node_id as usize];
         assert!(node.is_leaf(), "Not valid for internal nodes");
 
@@ -482,8 +465,8 @@ where
         let right_child_idx = right_child_idx as u32;
         self.build_node_bounds(triangles, left_child_idx);
         self.build_node_bounds(triangles, right_child_idx);
-        self.subdivide(triangles, left_child_idx);
-        self.subdivide(triangles, right_child_idx);
+        self.subdivide::<Strat>(triangles, left_child_idx);
+        self.subdivide::<Strat>(triangles, right_child_idx);
     }
 
     /// Split a node to get the node and both children as mutable
@@ -680,10 +663,7 @@ where
     }
 }
 
-impl<Strat> InPlaceRayIntersect for SimpleBVH<Strat>
-where
-    Strat: SplitPlaneStrategy,
-{
+impl InPlaceRayIntersect for SimpleBVH {
     #[inline]
     fn inplace_ray_intersect(&self, ray: &mut Ray) {
         let triangle_ref = self.triangles.read();
@@ -717,11 +697,11 @@ mod tests {
     fn empty_no_intersect() {
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, Vec3A::X);
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
 
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(vec![]));
         bvh.init(triangles);
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         bvh.inplace_ray_intersect(&mut ray);
 
@@ -740,12 +720,12 @@ mod tests {
 
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
 
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(vec![tri]));
 
         bvh.init(triangles);
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         bvh.inplace_ray_intersect(&mut ray);
 
@@ -768,12 +748,12 @@ mod tests {
 
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, -tri.centroid.normalize_or_zero());
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
 
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(vec![tri]));
 
         bvh.init(triangles);
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         bvh.inplace_ray_intersect(&mut ray);
 
@@ -800,9 +780,9 @@ mod tests {
 
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
         bvh.init(triangles.clone());
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         bvh.inplace_ray_intersect(&mut ray);
 
@@ -832,9 +812,9 @@ mod tests {
 
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
-        let mut bvh = SimpleBVH::<CompiledBinnedSAHStrategy>::default();
+        let mut bvh = SimpleBVH::default();
         bvh.init(triangles.clone());
-        bvh.build();
+        bvh.build::<CompiledBinnedSAHStrategy>();
 
         {
             let triangles_ref = triangles.read();
@@ -844,7 +824,13 @@ mod tests {
 
             bvh.inplace_ray_intersect(&mut ray);
 
-            assert!(ray.distance <= tri.centroid.distance(Vec3A::ZERO));
+            assert!(
+                ray.distance <= tri.centroid.distance(Vec3A::ZERO),
+                "Failed: {} <= {} with error {}",
+                ray.distance,
+                tri.centroid.distance(Vec3A::ZERO),
+                tri.centroid.distance(Vec3A::ZERO) - ray.distance
+            );
 
             let mut ray2 = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
@@ -875,7 +861,13 @@ mod tests {
 
             bvh.inplace_ray_intersect(&mut ray);
 
-            assert!(ray.distance <= tri.centroid.distance(Vec3A::ZERO));
+            assert!(
+                ray.distance <= tri.centroid.distance(Vec3A::ZERO),
+                "Failed: {} <= {} with error {}",
+                ray.distance,
+                tri.centroid.distance(Vec3A::ZERO),
+                tri.centroid.distance(Vec3A::ZERO) - ray.distance
+            );
 
             let mut ray2 = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
