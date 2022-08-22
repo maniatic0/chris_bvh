@@ -786,7 +786,14 @@ mod tests {
 
         bvh.inplace_ray_intersect(&mut ray);
 
-        assert!(ray.distance <= tri.centroid.distance(Vec3A::ZERO));
+        assert!(
+            ray.distance - tri.centroid.distance(Vec3A::ZERO) <= RAY_INTERSECT_EPSILON,
+            "Failed: {} <= {} with error {} and epsilon {}",
+            ray.distance,
+            tri.centroid.distance(Vec3A::ZERO),
+            tri.centroid.distance(Vec3A::ZERO) - ray.distance,
+            RAY_INTERSECT_EPSILON
+        );
 
         let mut ray2 = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
@@ -825,11 +832,12 @@ mod tests {
             bvh.inplace_ray_intersect(&mut ray);
 
             assert!(
-                ray.distance <= tri.centroid.distance(Vec3A::ZERO),
-                "Failed: {} <= {} with error {}",
+                ray.distance - tri.centroid.distance(Vec3A::ZERO) <= RAY_INTERSECT_EPSILON,
+                "Failed: {} <= {} with error {} and epsilon {}",
                 ray.distance,
                 tri.centroid.distance(Vec3A::ZERO),
-                tri.centroid.distance(Vec3A::ZERO) - ray.distance
+                tri.centroid.distance(Vec3A::ZERO) - ray.distance,
+                RAY_INTERSECT_EPSILON
             );
 
             let mut ray2 = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
@@ -862,11 +870,12 @@ mod tests {
             bvh.inplace_ray_intersect(&mut ray);
 
             assert!(
-                ray.distance <= tri.centroid.distance(Vec3A::ZERO),
-                "Failed: {} <= {} with error {}",
+                ray.distance - tri.centroid.distance(Vec3A::ZERO) <= RAY_INTERSECT_EPSILON,
+                "Failed: {} <= {} with error {} and epsilon {}",
                 ray.distance,
                 tri.centroid.distance(Vec3A::ZERO),
-                tri.centroid.distance(Vec3A::ZERO) - ray.distance
+                tri.centroid.distance(Vec3A::ZERO) - ray.distance,
+                RAY_INTERSECT_EPSILON
             );
 
             let mut ray2 = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
