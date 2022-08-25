@@ -143,9 +143,7 @@ impl SimpleBVHNode {
                 let bin = &mut bins[bin_id];
 
                 bin.tri_count += 1;
-                bin.bounds.grow(triangle.vertex0);
-                bin.bounds.grow(triangle.vertex1);
-                bin.bounds.grow(triangle.vertex2);
+                bin.bounds.grow(triangle);
             }
 
             let bins = bins;
@@ -224,14 +222,10 @@ impl SimpleBVHNode {
             let triangle = &triangles[triangles_id[first_prim + i] as usize];
             if triangle.centroid[axis as usize] < pos {
                 left_count += 1;
-                left_box.grow(triangle.vertex0);
-                left_box.grow(triangle.vertex1);
-                left_box.grow(triangle.vertex2);
+                left_box.grow(triangle);
             } else {
                 right_count += 1;
-                right_box.grow(triangle.vertex0);
-                right_box.grow(triangle.vertex1);
-                right_box.grow(triangle.vertex2);
+                right_box.grow(triangle);
             }
         }
 
@@ -401,10 +395,8 @@ impl SimpleBVH {
 
         let first: usize = node.first_prim() as usize;
         for i in 0..node.prim_count {
-            let tri = triangles[self.triangles_id[first + i as usize] as usize];
-            node.aabb.grow(tri.vertex0);
-            node.aabb.grow(tri.vertex1);
-            node.aabb.grow(tri.vertex2);
+            let tri = &triangles[self.triangles_id[first + i as usize] as usize];
+            node.aabb.grow(tri);
         }
     }
 

@@ -1,3 +1,5 @@
+use crate::Triangle;
+
 pub trait Grow<T> {
     fn grow(&mut self, object: T);
 }
@@ -48,5 +50,15 @@ impl Grow<&AABB> for AABB {
     fn grow(&mut self, aabb: &AABB) {
         self.grow(aabb.min);
         self.grow(aabb.max);
+    }
+}
+
+impl Grow<&Triangle> for AABB {
+    /// Grow the box to contain a triangle
+    #[inline]
+    fn grow(&mut self, triangle: &Triangle) {
+        self.grow(triangle.vertex0);
+        self.grow(triangle.vertex1);
+        self.grow(triangle.vertex2);
     }
 }
