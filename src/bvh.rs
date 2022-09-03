@@ -346,6 +346,9 @@ pub struct SimpleBVH {
 }
 
 impl SimpleBVH {
+    /// Max stack size for build and traverse operations (can address 4 GB)
+    const MAX_STACK_SIZE: usize = 64;
+
     #[inline]
     pub fn init(&mut self, triangles: Arc<RwLock<Vec<Triangle>>>) {
         self.triangles = triangles;
@@ -578,7 +581,8 @@ impl SimpleBVH {
             return;
         }
 
-        let mut stack: [Option<&SimpleBVHNode>; 64] = [Default::default(); 64];
+        let mut stack: [Option<&SimpleBVHNode>; SimpleBVH::MAX_STACK_SIZE] =
+            [Default::default(); SimpleBVH::MAX_STACK_SIZE];
         let mut stack_ptr = 0_usize;
 
         loop {
