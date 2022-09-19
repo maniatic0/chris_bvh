@@ -1,6 +1,8 @@
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
 
+pub mod object_pool;
+
 pub mod triangle;
 pub use triangle::*;
 
@@ -15,3 +17,6 @@ pub use intersections::*;
 
 pub mod bvh;
 pub use bvh::*;
+
+pub mod tlbvh;
+pub use tlbvh::*;

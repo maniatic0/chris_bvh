@@ -15,6 +15,8 @@ approx = { version = "*" }                                          # Testing
 glam = { version = "*", features = ["approx", "bytemuck", "rand"] }
 strum = { version = "*", features = ["derive"] }
 parking_lot = { version = "*" }
+num = { version = "*" }
+bitvec = { version = "*" }
 
 [dev-dependencies]
 rayon = { version = "*" }
