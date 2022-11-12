@@ -152,11 +152,13 @@ mod benchmarks {
     #[bench]
     fn simple_bvh_unity_build(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_unity_model();
+        let triangle_count = triangles.len();
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
 
+        b.bytes = triangle_count as u64;
         b.iter(|| {
             bvh.build::<CompiledBinnedSAHStrategy>();
         });
@@ -231,11 +233,13 @@ mod benchmarks {
     #[bench]
     fn simple_bvh_bigben_build(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_bigben_model();
+        let triangle_count = triangles.len();
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
 
+        b.bytes = triangle_count as u64;
         b.iter(|| {
             bvh.build::<CompiledBinnedSAHStrategy>();
         });
@@ -244,12 +248,14 @@ mod benchmarks {
     #[bench]
     fn simple_bvh_bigben_refit(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_bigben_model();
+        let triangle_count = triangles.len();
         let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
         bvh.build::<CompiledBinnedSAHStrategy>();
 
+        b.bytes = triangle_count as u64;
         b.iter(|| {
             bvh.refit();
         });
