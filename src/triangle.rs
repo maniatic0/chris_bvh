@@ -59,6 +59,7 @@ impl Distribution<Triangle> for Standard {
 impl Index<usize> for Triangle {
     type Output = glam::Vec3A;
 
+    #[inline]
     fn index(&self, index: usize) -> &Self::Output {
         assert!(index < 3, "Out of bounds indexing");
         match index {
@@ -73,6 +74,7 @@ impl Index<usize> for Triangle {
 impl Index<u8> for Triangle {
     type Output = glam::Vec3A;
 
+    #[inline]
     fn index(&self, index: u8) -> &Self::Output {
         assert!(index < 3, "Out of bounds indexing");
         match index {
@@ -85,6 +87,7 @@ impl Index<u8> for Triangle {
 }
 
 impl IndexMut<usize> for Triangle {
+    #[inline]
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         assert!(index < 3, "Out of bounds indexing");
         match index {
@@ -97,6 +100,7 @@ impl IndexMut<usize> for Triangle {
 }
 
 impl IndexMut<u8> for Triangle {
+    #[inline]
     fn index_mut(&mut self, index: u8) -> &mut Self::Output {
         assert!(index < 3, "Out of bounds indexing");
         match index {
