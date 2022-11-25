@@ -28,13 +28,16 @@ impl SimpleBVHNode {
     }
 
     /// Evaluate the SAH heuristic code at a position
-    fn evaluate_sah(
+    fn evaluate_sah<SubBVH>(
         &self,
-        triangles: &[Triangle],
+        triangles: &[SubBVH],
         triangles_id: &[u32],
         axis: Axis,
         pos: f32,
-    ) -> f32 {
+    ) -> f32
+    where
+        SubBVH: BVH,
+    {
         // determine triangle counts and bounds for this split candidate
         let mut left_box: AABB = Default::default();
         let mut right_box: AABB = Default::default();
@@ -46,12 +49,12 @@ impl SimpleBVHNode {
 
         for i in 0..prim_count {
             let triangle = &triangles[triangles_id[first_prim + i] as usize];
-            if triangle.centroid[axis] < pos {
+            if triangle.centroid()[axis] < pos {
                 left_count += 1;
-                left_box.grow(triangle);
+                left_box.grow(&triangle.bounds());
             } else {
                 right_count += 1;
-                right_box.grow(triangle);
+                right_box.grow(&triangle.bounds());
             }
         }
 
@@ -139,9 +142,12 @@ impl LongestExtentNodeStrategy for SimpleBVHNode {
     }
 }
 
-impl SAHNodeStrategy for SimpleBVHNode {
+impl<SubBVH> SAHNodeStrategy<SubBVH> for SimpleBVHNode
+where
+    SubBVH: BVH,
+{
     /// Get split plane from a node using the SAH strategy.
-    fn get_sah_split_plane(&self, triangles: &[Triangle], triangles_id: &[u32]) -> SplitPlane {
+    fn get_sah_split_plane(&self, triangles: &[SubBVH], triangles_id: &[u32]) -> SplitPlane {
         let mut best_axis = Axis::X;
         let mut best_pos: f32 = 0.0;
         let mut best_cost = f32::INFINITY;
@@ -152,7 +158,7 @@ impl SAHNodeStrategy for SimpleBVHNode {
         for axis in Axis::iter() {
             for i in 0..prim_count {
                 let triangle = &triangles[triangles_id[first_prim + i] as usize];
-                let candidate_pos = triangle.centroid[axis];
+                let candidate_pos = triangle.centroid()[axis];
                 let cost = self.evaluate_sah(triangles, triangles_id, axis, candidate_pos);
                 if cost < best_cost {
                     best_pos = candidate_pos;
@@ -174,11 +180,14 @@ impl SAHNodeStrategy for SimpleBVHNode {
     }
 }
 
-impl CompiledBinnedSAHNodeStrategy for SimpleBVHNode {
+impl<SubBVH> CompiledBinnedSAHNodeStrategy<SubBVH> for SimpleBVHNode
+where
+    SubBVH: BVH,
+{
     /// Get split plane from a node using the binned SAH strategy using. Number of intervals set at compile time .
     fn get_compile_binned_sah_split_plane<const INTERVAL_NUM: usize>(
         &self,
-        triangles: &[Triangle],
+        triangles: &[SubBVH],
         triangles_id: &[u32],
     ) -> SplitPlane
     where
@@ -197,8 +206,8 @@ impl CompiledBinnedSAHNodeStrategy for SimpleBVHNode {
 
         for i in 0..prim_count {
             let triangle = &triangles[triangles_id[first_prim + i] as usize];
-            bounds_min = bounds_min.min(triangle.centroid);
-            bounds_max = bounds_max.max(triangle.centroid);
+            bounds_min = bounds_min.min(triangle.centroid());
+            bounds_max = bounds_max.max(triangle.centroid());
         }
 
         let bounds_min = bounds_min;
@@ -227,13 +236,13 @@ impl CompiledBinnedSAHNodeStrategy for SimpleBVHNode {
 
                 let bin_id = min(
                     INTERVAL_NUM - 1,
-                    ((triangle.centroid[axis] - bounds_min) * scale) as usize,
+                    ((triangle.centroid()[axis] - bounds_min) * scale) as usize,
                 );
 
                 let bin = &mut bins[bin_id];
 
                 bin.tri_count += 1;
-                bin.bounds.grow(triangle);
+                bin.bounds.grow(&triangle.bounds());
             }
 
             let bins = bins;
@@ -310,7 +319,7 @@ impl SimpleBVH {
 
     pub fn build<Strat>(&mut self)
     where
-        Strat: SplitPlaneStrategy<SimpleBVHNode>,
+        Strat: SplitPlaneStrategy<SimpleBVHNode, Triangle>,
     {
         let triangles_arc = self.triangles.clone();
         let triangle_ref = triangles_arc.read();
@@ -359,7 +368,7 @@ impl SimpleBVH {
 
     fn subdivide<Strat>(&mut self, triangles: &[Triangle], node_id: u32)
     where
-        Strat: SplitPlaneStrategy<SimpleBVHNode>,
+        Strat: SplitPlaneStrategy<SimpleBVHNode, Triangle>,
     {
         let node = &mut self.nodes[node_id as usize];
         assert!(node.is_leaf(), "Not valid for internal nodes");
