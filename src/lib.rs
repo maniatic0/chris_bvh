@@ -3,6 +3,9 @@
 
 pub mod object_pool;
 
+pub mod axis;
+pub use axis::*;
+
 pub mod triangle;
 pub use triangle::*;
 
@@ -18,5 +21,8 @@ pub use intersections::*;
 pub mod bvh;
 pub use bvh::*;
 
-pub mod tlbvh;
-pub use tlbvh::*;
+pub mod bvh_strategy;
+pub use bvh_strategy::*;
+
+pub mod bvh_implementations;
+pub use bvh_implementations::*;

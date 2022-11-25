@@ -1,4 +1,4 @@
-use crate::Triangle;
+use crate::{Axis, Triangle};
 
 pub trait Grow<T> {
     fn grow(&mut self, object: T);
@@ -26,12 +26,32 @@ impl AABB {
         self.min.le(&self.max)
     }
 
+    #[inline]
     pub fn extent(&self) -> glam::Vec3A {
         self.max - self.min
     }
 
+    #[inline]
+    pub fn center(&self) -> glam::Vec3A {
+        (self.max + self.min) * 0.5
+    }
+
+    #[inline]
     pub fn area(&self) -> f32 {
         self.extent().length_squared()
+    }
+
+    #[inline]
+    pub fn longest_extent_axis(&self) -> Axis {
+        let extent = self.extent();
+        let mut axis = Axis::X;
+        if extent.y > extent.x {
+            axis = Axis::Y;
+        }
+        if extent.z > extent[axis] {
+            axis = Axis::Z;
+        }
+        axis
     }
 }
 
