@@ -1,7 +1,11 @@
-use crate::{Axis, Triangle};
+use crate::Axis;
 
 pub trait Grow<T> {
     fn grow(&mut self, object: T);
+}
+
+pub trait GrowAABB {
+    fn grow_aabb(&self, aabb: &mut AABB);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -66,19 +70,20 @@ impl Grow<glam::Vec3A> for AABB {
 
 impl Grow<&AABB> for AABB {
     /// Grow the box to contain another box
-    #[inline]
+    #[inline(always)]
     fn grow(&mut self, aabb: &AABB) {
         self.grow(aabb.min);
         self.grow(aabb.max);
     }
 }
 
-impl Grow<&Triangle> for AABB {
-    /// Grow the box to contain a triangle
-    #[inline]
-    fn grow(&mut self, triangle: &Triangle) {
-        self.grow(triangle.vertex0);
-        self.grow(triangle.vertex1);
-        self.grow(triangle.vertex2);
+impl<T> Grow<&T> for AABB
+where
+    T: GrowAABB,
+{
+    /// Grow the box to contain the object
+    #[inline(always)]
+    fn grow(&mut self, object: &T) {
+        object.grow_aabb(self);
     }
 }

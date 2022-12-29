@@ -4,7 +4,7 @@ use glam::Vec3A;
 use strum::IntoEnumIterator;
 
 use crate::{
-    Axis, CompiledBinnedSAHNodeStrategy, FastRayIntersect, Grow, InPlaceRayIntersect,
+    Axis, CompiledBinnedSAHNodeStrategy, FastRayIntersect, Grow, GrowAABB, InPlaceRayIntersect,
     LongestExtentNodeStrategy, Ray, RayIntersect, SAHNodeStrategy, SplitPlane, SplitPlaneStrategy,
     Triangle, AABB, BVH, RAY_INTERSECT_EPSILON,
 };
@@ -51,10 +51,10 @@ impl SimpleBVHNode {
             let triangle = &triangles[triangles_id[first_prim + i] as usize];
             if triangle.centroid()[axis] < pos {
                 left_count += 1;
-                left_box.grow(&triangle.bounds());
+                left_box.grow(triangle);
             } else {
                 right_count += 1;
-                right_box.grow(&triangle.bounds());
+                right_box.grow(triangle);
             }
         }
 
@@ -242,7 +242,7 @@ where
                 let bin = &mut bins[bin_id];
 
                 bin.tri_count += 1;
-                bin.bounds.grow(&triangle.bounds());
+                bin.bounds.grow(triangle);
             }
 
             let bins = bins;
@@ -300,30 +300,36 @@ where
 }
 
 #[derive(Default)]
-pub struct SimpleBVH {
-    triangles: Arc<RwLock<Vec<Triangle>>>,
+pub struct SimpleBVH<SubBVH = Triangle>
+where
+    SubBVH: BVH,
+{
+    triangles: Arc<RwLock<Vec<SubBVH>>>,
     triangles_id: Vec<u32>,
     nodes: Vec<SimpleBVHNode>,
     root_node_id: u32,
     nodes_used: u32,
 }
 
-impl SimpleBVH {
+impl<SubBVH> SimpleBVH<SubBVH>
+where
+    SubBVH: BVH,
+{
     /// Max stack size for build and traverse operations (can address 4 GB)
     const MAX_STACK_SIZE: usize = 64;
 
     #[inline]
-    pub fn init(&mut self, triangles: Arc<RwLock<Vec<Triangle>>>) {
+    pub fn init(&mut self, triangles: Arc<RwLock<Vec<SubBVH>>>) {
         self.triangles = triangles;
     }
 
     pub fn build<Strat>(&mut self)
     where
-        Strat: SplitPlaneStrategy<SimpleBVHNode, Triangle>,
+        Strat: SplitPlaneStrategy<SimpleBVHNode, SubBVH>,
     {
         let triangles_arc = self.triangles.clone();
         let triangle_ref = triangles_arc.read();
-        let triangles: &[Triangle] = &triangle_ref;
+        let triangles: &[SubBVH] = &triangle_ref;
         let tri_count = triangles.len();
         self.triangles_id.resize(tri_count, Default::default());
         for i in 0..tri_count {
@@ -354,7 +360,7 @@ impl SimpleBVH {
         }
     }
 
-    fn build_node_bounds(&mut self, triangles: &[Triangle], node_id: u32) {
+    fn build_node_bounds(&mut self, triangles: &[SubBVH], node_id: u32) {
         let node = &mut self.nodes[node_id as usize];
         assert!(node.is_leaf(), "Not valid for internal nodes");
         node.aabb = Default::default();
@@ -366,9 +372,9 @@ impl SimpleBVH {
         }
     }
 
-    fn subdivide<Strat>(&mut self, triangles: &[Triangle], node_id: u32)
+    fn subdivide<Strat>(&mut self, triangles: &[SubBVH], node_id: u32)
     where
-        Strat: SplitPlaneStrategy<SimpleBVHNode, Triangle>,
+        Strat: SplitPlaneStrategy<SimpleBVHNode, SubBVH>,
     {
         let node = &mut self.nodes[node_id as usize];
         assert!(node.is_leaf(), "Not valid for internal nodes");
@@ -390,7 +396,7 @@ impl SimpleBVH {
         let mut i = node.first_prim() as isize;
         let mut j = i + node.prim_count as isize - 1;
         while i <= j {
-            if triangles[self.triangles_id[i as usize] as usize].centroid[axis] < split_pos {
+            if triangles[self.triangles_id[i as usize] as usize].centroid()[axis] < split_pos {
                 i += 1;
             } else {
                 self.triangles_id.swap(i as usize, j as usize);
@@ -519,7 +525,7 @@ impl SimpleBVH {
     pub fn refit(&mut self) {
         let triangles_arc = self.triangles.clone();
         let triangle_ref = triangles_arc.read();
-        let triangles: &[Triangle] = &triangle_ref;
+        let triangles: &[SubBVH] = &triangle_ref;
 
         if triangles.is_empty() {
             return;
@@ -539,7 +545,10 @@ impl SimpleBVH {
         }
     }
 
-    fn inplace_intersect_ray(&self, triangles: &[Triangle], node_id: u32, ray: &mut Ray) {
+    fn inplace_intersect_ray(&self, triangles: &[SubBVH], node_id: u32, ray: &mut Ray)
+    where
+        [(); Self::MAX_STACK_SIZE]: Sized,
+    {
         let mut node = Option::Some(&self.nodes[node_id as usize]);
 
         let node_ref = node.unwrap();
@@ -547,8 +556,8 @@ impl SimpleBVH {
             return;
         }
 
-        let mut stack: [Option<&SimpleBVHNode>; SimpleBVH::MAX_STACK_SIZE] =
-            [Default::default(); SimpleBVH::MAX_STACK_SIZE];
+        let mut stack: [Option<&SimpleBVHNode>; Self::MAX_STACK_SIZE] =
+            [Default::default(); Self::MAX_STACK_SIZE];
         let mut stack_ptr = 0_usize;
 
         loop {
@@ -609,7 +618,7 @@ impl SimpleBVH {
         }
     }
 
-    pub fn triangles(&self) -> &Arc<RwLock<Vec<Triangle>>> {
+    pub fn triangles(&self) -> &Arc<RwLock<Vec<SubBVH>>> {
         &self.triangles
     }
 
@@ -618,33 +627,57 @@ impl SimpleBVH {
     /// # Safety
     /// The triangles must be the same as the one stored in the BVH (you can get the Arc-Mutex from the BVH)
     #[inline]
-    pub unsafe fn unsafe_inplace_ray_intersect(&self, triangles: &[Triangle], ray: &mut Ray) {
+    pub unsafe fn unsafe_inplace_ray_intersect(&self, triangles: &[SubBVH], ray: &mut Ray)
+    where
+        [(); Self::MAX_STACK_SIZE]: Sized,
+    {
         if !triangles.is_empty() {
             self.inplace_intersect_ray(triangles, self.root_node_id, ray);
         }
     }
+
+    fn bounds_internal(&self) -> &AABB {
+        &self.nodes[self.root_node_id as usize].aabb
+    }
 }
 
-impl InPlaceRayIntersect for SimpleBVH {
+impl<SubBVH> InPlaceRayIntersect for SimpleBVH<SubBVH>
+where
+    SubBVH: BVH,
+    [(); Self::MAX_STACK_SIZE]: Sized,
+{
     #[inline]
     fn inplace_ray_intersect(&self, ray: &mut Ray) {
         let triangle_ref = self.triangles.read();
-        let triangles: &[Triangle] = &triangle_ref;
+        let triangles: &[SubBVH] = &triangle_ref;
         if !triangles.is_empty() {
             self.inplace_intersect_ray(triangles, self.root_node_id, ray);
         }
     }
 }
 
-impl BVH for SimpleBVH {
+impl<SubBVH> BVH for SimpleBVH<SubBVH>
+where
+    SubBVH: BVH,
+    [(); Self::MAX_STACK_SIZE]: Sized,
+{
     #[inline]
     fn bounds(&self) -> AABB {
-        self.nodes[self.root_node_id as usize].aabb
+        *self.bounds_internal()
     }
 
     #[inline]
     fn centroid(&self) -> Vec3A {
-        self.bounds().center()
+        self.bounds_internal().center()
+    }
+}
+
+impl<SubBVH> GrowAABB for SimpleBVH<SubBVH>
+where
+    SubBVH: BVH,
+{
+    fn grow_aabb(&self, aabb: &mut AABB) {
+        aabb.grow(self.bounds_internal())
     }
 }
 

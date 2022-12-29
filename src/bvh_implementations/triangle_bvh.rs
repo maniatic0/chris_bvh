@@ -1,4 +1,4 @@
-use crate::{Grow, Triangle, AABB, BVH};
+use crate::{Grow, Triangle, AABB, GrowAABB, BVH};
 
 impl BVH for Triangle {
     #[inline]
@@ -10,8 +10,17 @@ impl BVH for Triangle {
         aabb
     }
 
-    #[inline]
+    #[inline(always)]
     fn centroid(&self) -> glam::Vec3A {
         self.centroid
+    }
+}
+
+impl GrowAABB for Triangle {
+    #[inline]
+    fn grow_aabb(&self, aabb: &mut AABB) {
+        aabb.grow(self.vertex0);
+        aabb.grow(self.vertex1);
+        aabb.grow(self.vertex2);
     }
 }
