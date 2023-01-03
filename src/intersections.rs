@@ -117,7 +117,7 @@ pub fn aabb_slab_test(aabb: &AABB, ray: &Ray) -> bool {
 }
 
 impl FastRayIntersect for AABB {
-    #[inline]
+    #[inline(always)]
     fn fast_ray_intersect(&self, ray: &Ray) -> bool {
         aabb_slab_test(self, ray)
     }
