@@ -1,17 +1,17 @@
 extern crate glam;
 use glam::Vec3A;
 
-use strum::IntoEnumIterator;
-
 use crate::{
     Axis, CompiledBinnedSAHNodeStrategy, FastRayIntersect, Grow, GrowAABB, InPlaceRayIntersect,
     LongestExtentNodeStrategy, Ray, RayIntersect, SAHNodeStrategy, SplitPlane, SplitPlaneStrategy,
     Triangle, AABB, BVH, RAY_INTERSECT_EPSILON,
 };
 
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockReadGuard};
+use smallvec::SmallVec;
 use std::cmp::min;
 use std::sync::Arc;
+use strum::IntoEnumIterator;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SimpleBVHNode {
@@ -299,6 +299,67 @@ where
     }
 }
 
+pub struct SimpleBVHReadLock<'a, SubBVH>
+where
+    SubBVH: BVH,
+{
+    bvh: &'a SimpleBVH<SubBVH>,
+    triangles_read_lock: RwLockReadGuard<'a, Vec<SubBVH>>,
+}
+
+impl<'a, SubBVH> SimpleBVHReadLock<'a, SubBVH>
+where
+    SubBVH: BVH,
+{
+    #[inline(always)]
+    pub fn new(bvh: &'a SimpleBVH<SubBVH>) -> Self {
+        let read_lock = bvh.triangles().read();
+
+        Self {
+            bvh,
+            triangles_read_lock: read_lock,
+        }
+    }
+}
+
+impl<'a, SubBVH> GrowAABB for SimpleBVHReadLock<'a, SubBVH>
+where
+    SubBVH: BVH,
+{
+    #[inline(always)]
+    fn grow_aabb(&self, aabb: &mut AABB) {
+        self.bvh.grow_aabb(aabb)
+    }
+}
+
+impl<'a, SubBVH> InPlaceRayIntersect for SimpleBVHReadLock<'a, SubBVH>
+where
+    SubBVH: BVH,
+{
+    #[inline(always)]
+    fn inplace_ray_intersect(&self, ray: &mut Ray) {
+        unsafe {
+            self.bvh
+                .unsafe_inplace_ray_intersect(&self.triangles_read_lock, ray)
+        }
+    }
+}
+
+impl<'a, SubBVH> BVH for SimpleBVHReadLock<'a, SubBVH>
+where
+    SubBVH: BVH,
+{
+    #[inline(always)]
+    fn bounds(&self) -> AABB {
+        self.bvh.bounds()
+    }
+
+    #[inline(always)]
+    fn centroid(&self) -> Vec3A {
+        self.bvh.centroid()
+    }
+}
+
 #[derive(Default)]
 pub struct SimpleBVH<SubBVH = Triangle>
 where
@@ -311,13 +372,18 @@ where
     nodes_used: u32,
 }
 
+// Note that this is outside of the impl is because of https://github.com/rust-lang/rust/issues/8995
+
+/// Max stack size for build and traverse operations (can address 4 GB)
+const MAX_STACK_SIZE: usize = 64;
+
+/// Node traversing stack
+type TraverseStack<'a> = SmallVec<[Option<&'a SimpleBVHNode>; MAX_STACK_SIZE]>;
+
 impl<SubBVH> SimpleBVH<SubBVH>
 where
     SubBVH: BVH,
 {
-    /// Max stack size for build and traverse operations (can address 4 GB)
-    const MAX_STACK_SIZE: usize = 64;
-
     #[inline]
     pub fn init(&mut self, triangles: Arc<RwLock<Vec<SubBVH>>>) {
         self.triangles = triangles;
@@ -545,22 +611,18 @@ where
         }
     }
 
-    fn inplace_intersect_ray(&self, triangles: &[SubBVH], node_id: u32, ray: &mut Ray)
-    where
-        [(); Self::MAX_STACK_SIZE]: Sized,
-    {
-        let mut node = Option::Some(&self.nodes[node_id as usize]);
-
-        let node_ref = node.unwrap();
-        if !node_ref.aabb.fast_ray_intersect(ray) {
+    fn inplace_intersect_ray(&self, triangles: &[SubBVH], node_id: u32, ray: &mut Ray) {
+        let node = &self.nodes[node_id as usize];
+        if !node.aabb.fast_ray_intersect(ray) {
             return;
         }
 
-        let mut stack: [Option<&SimpleBVHNode>; Self::MAX_STACK_SIZE] =
-            [Default::default(); Self::MAX_STACK_SIZE];
-        let mut stack_ptr = 0_usize;
+        let mut stack: TraverseStack = Default::default();
 
-        loop {
+        stack.push(Option::Some(node));
+
+        while !stack.is_empty() {
+            let node = stack.pop().unwrap();
             let node_ref = node.unwrap();
 
             if node_ref.is_leaf() {
@@ -570,49 +632,34 @@ where
                     triangles[self.triangles_id[(first_prim + i) as usize] as usize]
                         .inplace_ray_intersect(ray);
                 }
-
-                if stack_ptr == 0 {
-                    break;
-                } else {
-                    stack_ptr -= 1;
-                    node = stack[stack_ptr];
-                    continue;
-                }
             } else {
                 let child1 = &self.nodes[node_ref.left_child() as usize];
                 let child2 = &self.nodes[node_ref.right_child() as usize];
 
-                let mut dist1 = child1.aabb.ray_intersect(ray);
-                let mut dist2 = child2.aabb.ray_intersect(ray);
+                let mut closest_dist = child1.aabb.ray_intersect(ray);
+                let mut farthest_dist = child2.aabb.ray_intersect(ray);
 
-                let mut child1 = Option::Some(child1);
-                let mut child2 = Option::Some(child2);
+                let mut closest_child = Option::Some(child1);
+                let mut farthest_child = Option::Some(child2);
 
-                if dist1 > dist2 {
-                    (dist1, dist2) = (dist2, dist1);
-                    (child1, child2) = (child2, child1);
+                if closest_dist > farthest_dist {
+                    (closest_dist, farthest_dist) = (farthest_dist, closest_dist);
+                    (closest_child, farthest_child) = (farthest_child, closest_child);
                 }
 
-                let dist1 = dist1;
-                let dist2 = dist2;
+                let closest_dist = closest_dist;
+                let farthest_dist = farthest_dist;
 
-                let child1 = child1;
-                let child2 = child2;
+                let closest_child = closest_child;
+                let farthest_child = farthest_child;
 
-                if dist1.is_infinite() {
-                    if stack_ptr == 0 {
-                        break;
-                    } else {
-                        stack_ptr -= 1;
-                        node = stack[stack_ptr];
-                        continue;
+                if closest_dist.is_finite() {
+                    // closest dist being inf means no intersection
+                    if farthest_dist.is_finite() {
+                        stack.push(farthest_child);
                     }
-                } else {
-                    node = child1;
-                    if dist2.is_finite() {
-                        stack[stack_ptr] = child2;
-                        stack_ptr += 1;
-                    }
+
+                    stack.push(closest_child);
                 }
             }
         }
@@ -622,15 +669,16 @@ where
         &self.triangles
     }
 
+    pub fn read_lock(&self) -> SimpleBVHReadLock<SubBVH> {
+        SimpleBVHReadLock::new(self)
+    }
+
     /// Intersect the BVH and use the triangles from the vector for the leaves
     ///
     /// # Safety
     /// The triangles must be the same as the one stored in the BVH (you can get the Arc-Mutex from the BVH)
     #[inline]
-    pub unsafe fn unsafe_inplace_ray_intersect(&self, triangles: &[SubBVH], ray: &mut Ray)
-    where
-        [(); Self::MAX_STACK_SIZE]: Sized,
-    {
+    pub unsafe fn unsafe_inplace_ray_intersect(&self, triangles: &[SubBVH], ray: &mut Ray) {
         if !triangles.is_empty() {
             self.inplace_intersect_ray(triangles, self.root_node_id, ray);
         }
@@ -644,7 +692,6 @@ where
 impl<SubBVH> InPlaceRayIntersect for SimpleBVH<SubBVH>
 where
     SubBVH: BVH,
-    [(); Self::MAX_STACK_SIZE]: Sized,
 {
     #[inline]
     fn inplace_ray_intersect(&self, ray: &mut Ray) {
@@ -659,7 +706,6 @@ where
 impl<SubBVH> BVH for SimpleBVH<SubBVH>
 where
     SubBVH: BVH,
-    [(); Self::MAX_STACK_SIZE]: Sized,
 {
     #[inline]
     fn bounds(&self) -> AABB {

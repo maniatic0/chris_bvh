@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [profile.bench]
-debug = true
+debug = false # use this to debug if necessary
 
 [dependencies]
 rand = { version = "*" }
@@ -17,6 +17,7 @@ strum = { version = "*", features = ["derive"] }
 parking_lot = { version = "*" }
 num = { version = "*" }
 bitvec = { version = "*" }
+smallvec = { version = "*" }
 
 [dev-dependencies]
 rayon = { version = "*" }
