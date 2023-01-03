@@ -1,4 +1,4 @@
-use crate::{Grow, Triangle, AABB, GrowAABB, BVH};
+use crate::{Grow, GrowAABB, Triangle, AABB, BVH};
 
 impl BVH for Triangle {
     #[inline]
