@@ -360,7 +360,7 @@ where
     }
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct SimpleBVH<SubBVH = Triangle>
 where
     SubBVH: BVH,
