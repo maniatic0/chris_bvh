@@ -218,7 +218,7 @@ where
 
         let serial = self.serials[index_usize];
         if serial.0 != handle.serial() {
-            // Wrong serial, trying to delete a previous object
+            // Wrong serial, trying to get a previous object
             return None;
         }
 
