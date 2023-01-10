@@ -11,10 +11,7 @@ mod benchmarks {
         io::{BufRead, BufReader},
         iter,
         path::{Path, PathBuf},
-        sync::Arc,
     };
-
-    use parking_lot::RwLock;
 
     use rand::{thread_rng, Rng};
 
@@ -86,8 +83,6 @@ mod benchmarks {
             })
             .collect();
 
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
-
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
         bvh.build::<CompiledBinnedSAHStrategy>();
@@ -153,7 +148,6 @@ mod benchmarks {
     fn simple_bvh_unity_build(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_unity_model();
         let triangle_count = triangles.len();
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
@@ -167,7 +161,6 @@ mod benchmarks {
     #[bench]
     fn simple_bvh_unity_intersect(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_unity_model();
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
@@ -202,7 +195,7 @@ mod benchmarks {
         load_tri_model(bigben_file)
     }
 
-    fn animate_bigben(time: f32, original: &Vec<Triangle>, animation: &mut [Triangle]) -> f32 {
+    fn animate_bigben(time: f32, original: &[Triangle], animation: &mut [Triangle]) -> f32 {
         assert_eq!(
             original.len(),
             animation.len(),
@@ -234,7 +227,6 @@ mod benchmarks {
     fn simple_bvh_bigben_build(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_bigben_model();
         let triangle_count = triangles.len();
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
@@ -249,7 +241,6 @@ mod benchmarks {
     fn simple_bvh_bigben_refit(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_bigben_model();
         let triangle_count = triangles.len();
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
@@ -264,7 +255,6 @@ mod benchmarks {
     #[bench]
     fn simple_bvh_bigben_intersect_singlethread(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_bigben_model();
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
@@ -302,7 +292,6 @@ mod benchmarks {
     #[bench]
     fn simple_bvh_bigben_intersect_multithread(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_bigben_model();
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
 
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
@@ -316,7 +305,7 @@ mod benchmarks {
         let p1 = Vec3A::new(1.0, 1.0, 2.0);
         let p2 = Vec3A::new(-1.0, -1.0, 2.0);
 
-        let pool = ThreadPoolBuilder::new().num_threads(2).build().unwrap();
+        let pool = ThreadPoolBuilder::new().build().unwrap();
 
         b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
         b.iter(|| {
@@ -344,9 +333,9 @@ mod benchmarks {
     }
 
     #[bench]
-    fn simple_bvh_bigben_intersect_multithread_unsafe(b: &mut Bencher) {
+    fn simple_bvh_bigben_intersect_animation(b: &mut Bencher) {
         let triangles: Vec<Triangle> = load_bigben_model();
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
+        let original_tris = triangles.clone();
 
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles);
@@ -362,120 +351,15 @@ mod benchmarks {
 
         //let pool = ThreadPoolBuilder::new().num_threads(2).build().unwrap();
         let pool = ThreadPoolBuilder::new().build().unwrap();
-
-        let triangles_arc = bvh.triangles().clone();
-        let triangles_lock = triangles_arc.read();
-        let triangles: &Vec<Triangle> = &triangles_lock;
-
-        b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
-        b.iter(|| {
-            pool.install(|| {
-                (0..tile_num).into_par_iter().for_each(|tile| {
-                    let x = tile % tile_width;
-                    let y = tile / tile_width;
-
-                    for v in 0..RESOLUTION_STEP_X {
-                        for u in 0..RESOLUTION_STEP_Y {
-                            let pixel_pos: Vec3A = P0
-                                + (p1 - p0) * ((x + v) as f32 / RESOLUTION_X as f32)
-                                + (p2 - p0) * ((y + u) as f32 / RESOLUTION_Y as f32);
-                            let mut ray = Ray::infinite_ray(
-                                CAM_POS,
-                                (pixel_pos - CAM_POS).normalize_or_zero(),
-                            );
-
-                            unsafe {
-                                bvh.unsafe_inplace_ray_intersect(triangles, &mut ray);
-                            }
-                        }
-                    }
-                });
-            });
-        });
-    }
-
-    #[bench]
-    fn simple_bvh_bigben_intersect_multithread_safe(b: &mut Bencher) {
-        let triangles: Vec<Triangle> = load_bigben_model();
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
-
-        let mut bvh = SimpleBVH::default();
-        bvh.init(triangles);
-        bvh.build::<CompiledBinnedSAHStrategy>();
-
-        let tile_num = (RESOLUTION_Y / RESOLUTION_STEP_Y) * (RESOLUTION_X / RESOLUTION_STEP_X);
-
-        let tile_width = RESOLUTION_X / RESOLUTION_STEP_X;
-
-        let p0 = Vec3A::new(-1.0, 1.0, 2.0);
-        let p1 = Vec3A::new(1.0, 1.0, 2.0);
-        let p2 = Vec3A::new(-1.0, -1.0, 2.0);
-
-        //let pool = ThreadPoolBuilder::new().num_threads(2).build().unwrap();
-        let pool = ThreadPoolBuilder::new().build().unwrap();
-
-        let triangles_lock = bvh.read_lock();
-
-        b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
-        b.iter(|| {
-            pool.install(|| {
-                (0..tile_num).into_par_iter().for_each(|tile| {
-                    let x = tile % tile_width;
-                    let y = tile / tile_width;
-
-                    for v in 0..RESOLUTION_STEP_X {
-                        for u in 0..RESOLUTION_STEP_Y {
-                            let pixel_pos: Vec3A = P0
-                                + (p1 - p0) * ((x + v) as f32 / RESOLUTION_X as f32)
-                                + (p2 - p0) * ((y + u) as f32 / RESOLUTION_Y as f32);
-                            let mut ray = Ray::infinite_ray(
-                                CAM_POS,
-                                (pixel_pos - CAM_POS).normalize_or_zero(),
-                            );
-
-                            triangles_lock.inplace_ray_intersect(&mut ray);
-                        }
-                    }
-                });
-            });
-        });
-    }
-
-    #[bench]
-    fn simple_bvh_bigben_intersect_animation_unsafe(b: &mut Bencher) {
-        let triangles: Vec<Triangle> = load_bigben_model();
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
-
-        let mut bvh = SimpleBVH::default();
-        bvh.init(triangles);
-        bvh.build::<CompiledBinnedSAHStrategy>();
-
-        let tile_num = (RESOLUTION_Y / RESOLUTION_STEP_Y) * (RESOLUTION_X / RESOLUTION_STEP_X);
-
-        let tile_width = RESOLUTION_X / RESOLUTION_STEP_X;
-
-        let p0 = Vec3A::new(-1.0, 1.0, 2.0);
-        let p1 = Vec3A::new(1.0, 1.0, 2.0);
-        let p2 = Vec3A::new(-1.0, -1.0, 2.0);
-
-        //let pool = ThreadPoolBuilder::new().num_threads(2).build().unwrap();
-        let pool = ThreadPoolBuilder::new().build().unwrap();
-
-        let triangles_arc = bvh.triangles().clone();
-        let original_tris = triangles_arc.read().clone();
 
         let mut time = 0.0;
 
         b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
         b.iter(|| {
             {
-                let mut triangles_lock = triangles_arc.write();
-                let triangles: &mut Vec<Triangle> = triangles_lock.as_mut();
+                let triangles = bvh.triangles_mut();
                 time = animate_bigben(time, &original_tris, triangles);
             }
-
-            let triangles_lock = triangles_arc.read();
-            let triangles: &Vec<Triangle> = &triangles_lock;
 
             pool.install(|| {
                 (0..tile_num).into_par_iter().for_each(|tile| {
@@ -492,67 +376,7 @@ mod benchmarks {
                                 (pixel_pos - CAM_POS).normalize_or_zero(),
                             );
 
-                            unsafe {
-                                bvh.unsafe_inplace_ray_intersect(triangles, &mut ray);
-                            }
-                        }
-                    }
-                });
-            });
-        });
-    }
-
-    #[bench]
-    fn simple_bvh_bigben_intersect_animation_safe(b: &mut Bencher) {
-        let triangles: Vec<Triangle> = load_bigben_model();
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
-
-        let mut bvh = SimpleBVH::default();
-        bvh.init(triangles);
-        bvh.build::<CompiledBinnedSAHStrategy>();
-
-        let tile_num = (RESOLUTION_Y / RESOLUTION_STEP_Y) * (RESOLUTION_X / RESOLUTION_STEP_X);
-
-        let tile_width = RESOLUTION_X / RESOLUTION_STEP_X;
-
-        let p0 = Vec3A::new(-1.0, 1.0, 2.0);
-        let p1 = Vec3A::new(1.0, 1.0, 2.0);
-        let p2 = Vec3A::new(-1.0, -1.0, 2.0);
-
-        //let pool = ThreadPoolBuilder::new().num_threads(2).build().unwrap();
-        let pool = ThreadPoolBuilder::new().build().unwrap();
-
-        let triangles_arc = bvh.triangles().clone();
-        let original_tris = triangles_arc.read().clone();
-
-        let mut time = 0.0;
-
-        b.bytes = (RESOLUTION_Y * RESOLUTION_X) as u64;
-        b.iter(|| {
-            {
-                let mut triangles_lock = triangles_arc.write();
-                let triangles: &mut Vec<Triangle> = triangles_lock.as_mut();
-                time = animate_bigben(time, &original_tris, triangles);
-            }
-
-            let triangles_lock = bvh.read_lock();
-
-            pool.install(|| {
-                (0..tile_num).into_par_iter().for_each(|tile| {
-                    let x = tile % tile_width;
-                    let y = tile / tile_width;
-
-                    for v in 0..RESOLUTION_STEP_X {
-                        for u in 0..RESOLUTION_STEP_Y {
-                            let pixel_pos: Vec3A = P0
-                                + (p1 - p0) * ((x + v) as f32 / RESOLUTION_X as f32)
-                                + (p2 - p0) * ((y + u) as f32 / RESOLUTION_Y as f32);
-                            let mut ray = Ray::infinite_ray(
-                                CAM_POS,
-                                (pixel_pos - CAM_POS).normalize_or_zero(),
-                            );
-
-                            triangles_lock.inplace_ray_intersect(&mut ray);
+                            bvh.inplace_ray_intersect(&mut ray);
                         }
                     }
                 });
