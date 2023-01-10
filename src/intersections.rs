@@ -105,7 +105,7 @@ mod triangle_tests {
 }
 
 pub fn aabb_slab_test(aabb: &AABB, ray: &Ray) -> bool {
-    assert!(aabb.is_valid(), "This test doesn't work with invalid boxes");
+    debug_assert!(aabb.is_valid(), "This test doesn't work with invalid boxes");
 
     let t1 = (aabb.min - ray.origin) * ray.direction_recip();
     let t2 = (aabb.max - ray.origin) * ray.direction_recip();
@@ -117,9 +117,10 @@ pub fn aabb_slab_test(aabb: &AABB, ray: &Ray) -> bool {
     let ttmax = tmax.min_element();
 
     let tmax_gt_zero = tmax.cmpgt(Vec3A::ZERO).any();
+    let tmin_lt_ray_dist = tmin.cmplt(Vec3A::splat(ray.distance)).any();
 
     // ttmax > 0.0 && ttmax >= ttmin && ttmin < ray.distance
-    tmax_gt_zero && ttmax >= ttmin && ttmin < ray.distance
+    tmax_gt_zero && ttmax >= ttmin && tmin_lt_ray_dist
 }
 
 impl FastRayIntersect for AABB {
