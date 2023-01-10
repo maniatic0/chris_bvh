@@ -1,3 +1,5 @@
+use glam::Vec3A;
+
 use crate::{Ray, Triangle, AABB};
 
 /// Objects capable of being intersected by a ray that store the distance in the ray
@@ -53,7 +55,7 @@ impl InPlaceRayIntersect for Triangle {
 }
 
 #[cfg(test)]
-mod tests {
+mod triangle_tests {
 
     use rand::{thread_rng, Rng};
 
@@ -104,6 +106,7 @@ mod tests {
 
 pub fn aabb_slab_test(aabb: &AABB, ray: &Ray) -> bool {
     assert!(aabb.is_valid(), "This test doesn't work with invalid boxes");
+
     let t1 = (aabb.min - ray.origin) * ray.direction_recip();
     let t2 = (aabb.max - ray.origin) * ray.direction_recip();
 
@@ -113,13 +116,69 @@ pub fn aabb_slab_test(aabb: &AABB, ray: &Ray) -> bool {
     let ttmin = tmin.max_element();
     let ttmax = tmax.min_element();
 
-    ttmax > 0.0 && ttmax >= ttmin && ttmin < ray.distance
+    let tmax_gt_zero = tmax.cmpgt(Vec3A::ZERO).any();
+
+    // ttmax > 0.0 && ttmax >= ttmin && ttmin < ray.distance
+    tmax_gt_zero && ttmax >= ttmin && ttmin < ray.distance
 }
 
 impl FastRayIntersect for AABB {
     #[inline(always)]
     fn fast_ray_intersect(&self, ray: &Ray) -> bool {
         aabb_slab_test(self, ray)
+    }
+}
+
+#[cfg(test)]
+mod aabb_slab_tests {
+
+    use glam::Vec3A;
+
+    use crate::*;
+
+    #[test]
+    fn ray_aabb_intersect_inside() {
+        let mut aabb = AABB::default();
+
+        // Box from [-2,-2,-2] to [2,2,2]
+        aabb.max = Vec3A::ONE * 2.0;
+        aabb.min = -aabb.max;
+
+        let ray = Ray::infinite_ray(Vec3A::ONE, aabb.center().normalize_or_zero());
+
+        assert!(aabb.fast_ray_intersect(&ray), "Should intersect");
+    }
+
+    #[test]
+    fn ray_aabb_intersect_outside() {
+        let mut aabb = AABB::default();
+
+        // Box from [-2,-2,-2] to [2,2,2]
+        aabb.max = Vec3A::ONE * 2.0;
+        aabb.min = -aabb.max;
+
+        let ori = aabb.max * 2.0;
+        let dir = (aabb.center() - ori).normalize_or_zero();
+
+        let ray = Ray::infinite_ray(ori, dir);
+
+        assert!(aabb.fast_ray_intersect(&ray), "Should intersect");
+    }
+
+    #[test]
+    fn ray_aabb_no_intersect() {
+        let mut aabb = AABB::default();
+
+        // Box from [-2,-2,-2] to [2,2,2]
+        aabb.max = Vec3A::ONE * 2.0;
+        aabb.min = -aabb.max;
+
+        let ori = aabb.max * 2.0;
+        let dir = (aabb.center() - ori).normalize_or_zero();
+
+        let ray = Ray::infinite_ray(ori, -dir);
+
+        assert!(!aabb.fast_ray_intersect(&ray), "Should not intersect");
     }
 }
 
