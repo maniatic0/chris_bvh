@@ -31,7 +31,7 @@ pub fn inplace_ray_triangle_intersect(tri: &Triangle, ray: &mut Ray) {
     let f = 1.0 / a;
     let s = ray.origin - tri.vertex0;
     let u = f * s.dot(h);
-    if !(0.0..=1.0).contains(&u) {
+    if u < 0.0 && 1.0 < u {
         return;
     }
     let q = s.cross(edge1);
