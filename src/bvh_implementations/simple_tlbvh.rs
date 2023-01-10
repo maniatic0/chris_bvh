@@ -1,6 +1,6 @@
 use crate::{
     object_pool::{Handle, HandlePool},
-    FastRayIntersect, Grow, Ray, RayIntersect, AABB, BVH,
+    FastRayIntersect, Grow, Ray, RayIntersect, SimpleBVH, AABB, BVH, GrowAABB, InPlaceRayIntersect,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -31,6 +31,14 @@ impl BVHInstance {
         BVHType: BVH,
     {
         self.bvh_handle = *bvh_handle;
+        self.update_transform(bvh, transform)
+    }
+
+    #[inline]
+    pub fn update_transform<BVHType>(&mut self, bvh: &BVHType, transform: &glam::Affine3A)
+    where
+        BVHType: BVH,
+    {
         self.inv_transform = transform.inverse();
 
         let bvh_bounds = bvh.bounds();
@@ -59,7 +67,7 @@ impl BVHInstance {
         }
     }
 
-    pub fn inplace_ray_intersect<BVHType>(&self, bvh: &BVHType, ray: &mut Ray)
+    pub unsafe fn inplace_ray_intersect_unsafe<BVHType>(&self, bvh: &BVHType, ray: &mut Ray)
     where
         BVHType: BVH,
     {
@@ -80,15 +88,39 @@ impl BVHInstance {
     }
 }
 
-pub struct TLBVH<BVHType>
+impl GrowAABB for BVHInstance {
+    fn grow_aabb(&self, aabb: &mut AABB) {
+        aabb.grow(&self.bounds)
+    }
+}
+
+impl InPlaceRayIntersect for BVHInstance {
+    fn inplace_ray_intersect(&self, _: &mut Ray) {
+        panic!("Will not be implemented")
+    }
+}
+
+impl BVH for BVHInstance {
+    fn bounds(&self) -> AABB {
+        self.bounds
+    }
+
+    fn centroid(&self) -> glam::Vec3A {
+        self.bounds.center()
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct SimpleTLBVH<BVHType = SimpleBVH>
 where
     BVHType: BVH + Default,
 {
     bvhs: HandlePool<BVHType>,
     bvh_instances: HandlePool<BVHInstance>,
+    tlbvh: SimpleBVH<BVHInstance>
 }
 
-impl<BVHType> TLBVH<BVHType>
+impl<BVHType> SimpleTLBVH<BVHType>
 where
     BVHType: BVH + Default,
 {
@@ -96,16 +128,19 @@ where
         self.bvhs.add()
     }
 
-    pub fn add_bvh_instance(&mut self, bvh_handle: &Handle, transform: &glam::Affine3A) -> bool {
+    pub fn add_bvh_instance(
+        &mut self,
+        bvh_handle: &Handle,
+        transform: &glam::Affine3A,
+    ) -> Option<Handle> {
         let maybe_bvh = self.bvhs.get(bvh_handle);
 
         match maybe_bvh {
-            None => false,
+            None => None,
             Some(bvh) => {
-                let (instance, _) = self.bvh_instances.add();
-                // TODO add the handle to the tree
+                let (instance, handle) = self.bvh_instances.add();
                 instance.set_bvh(bvh_handle, bvh, transform);
-                true
+                Some(handle)
             }
         }
     }

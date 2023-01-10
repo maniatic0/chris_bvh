@@ -7,10 +7,8 @@ use crate::{
     Triangle, AABB, BVH, RAY_INTERSECT_EPSILON,
 };
 
-use parking_lot::{RwLock, RwLockReadGuard};
 use smallvec::SmallVec;
 use std::cmp::min;
-use std::sync::Arc;
 use strum::IntoEnumIterator;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -299,73 +297,12 @@ where
     }
 }
 
-pub struct SimpleBVHReadLock<'a, SubBVH>
-where
-    SubBVH: BVH,
-{
-    bvh: &'a SimpleBVH<SubBVH>,
-    triangles_read_lock: RwLockReadGuard<'a, Vec<SubBVH>>,
-}
-
-impl<'a, SubBVH> SimpleBVHReadLock<'a, SubBVH>
-where
-    SubBVH: BVH,
-{
-    #[inline(always)]
-    pub fn new(bvh: &'a SimpleBVH<SubBVH>) -> Self {
-        let read_lock = bvh.triangles().read();
-
-        Self {
-            bvh,
-            triangles_read_lock: read_lock,
-        }
-    }
-}
-
-impl<'a, SubBVH> GrowAABB for SimpleBVHReadLock<'a, SubBVH>
-where
-    SubBVH: BVH,
-{
-    #[inline(always)]
-    fn grow_aabb(&self, aabb: &mut AABB) {
-        self.bvh.grow_aabb(aabb)
-    }
-}
-
-impl<'a, SubBVH> InPlaceRayIntersect for SimpleBVHReadLock<'a, SubBVH>
-where
-    SubBVH: BVH,
-{
-    #[inline(always)]
-    fn inplace_ray_intersect(&self, ray: &mut Ray) {
-        unsafe {
-            self.bvh
-                .unsafe_inplace_ray_intersect(&self.triangles_read_lock, ray)
-        }
-    }
-}
-
-impl<'a, SubBVH> BVH for SimpleBVHReadLock<'a, SubBVH>
-where
-    SubBVH: BVH,
-{
-    #[inline(always)]
-    fn bounds(&self) -> AABB {
-        self.bvh.bounds()
-    }
-
-    #[inline(always)]
-    fn centroid(&self) -> Vec3A {
-        self.bvh.centroid()
-    }
-}
-
 #[derive(Debug, Default)]
 pub struct SimpleBVH<SubBVH = Triangle>
 where
     SubBVH: BVH,
 {
-    triangles: Arc<RwLock<Vec<SubBVH>>>,
+    triangles: Vec<SubBVH>,
     triangles_id: Vec<u32>,
     nodes: Vec<SimpleBVHNode>,
     root_node_id: u32,
@@ -385,7 +322,7 @@ where
     SubBVH: BVH,
 {
     #[inline]
-    pub fn init(&mut self, triangles: Arc<RwLock<Vec<SubBVH>>>) {
+    pub fn init(&mut self, triangles: Vec<SubBVH>) {
         self.triangles = triangles;
     }
 
@@ -393,10 +330,7 @@ where
     where
         Strat: SplitPlaneStrategy<SimpleBVHNode, SubBVH>,
     {
-        let triangles_arc = self.triangles.clone();
-        let triangle_ref = triangles_arc.read();
-        let triangles: &[SubBVH] = &triangle_ref;
-        let tri_count = triangles.len();
+        let tri_count = self.triangles.len();
         self.triangles_id.resize(tri_count, Default::default());
         for i in 0..tri_count {
             self.triangles_id[i] = i as u32;
@@ -421,24 +355,24 @@ where
         root.aabb = Default::default();
 
         if tri_count > 0 {
-            self.build_node_bounds(triangles, self.root_node_id);
-            self.subdivide::<Strat>(triangles, self.root_node_id);
+            self.build_node_bounds(self.root_node_id);
+            self.subdivide::<Strat>(self.root_node_id);
         }
     }
 
-    fn build_node_bounds(&mut self, triangles: &[SubBVH], node_id: u32) {
+    fn build_node_bounds(&mut self, node_id: u32) {
         let node = &mut self.nodes[node_id as usize];
         assert!(node.is_leaf(), "Not valid for internal nodes");
         node.aabb = Default::default();
 
         let first: usize = node.first_prim() as usize;
         for i in 0..node.prim_count {
-            let tri = &triangles[self.triangles_id[first + i as usize] as usize];
+            let tri = &self.triangles[self.triangles_id[first + i as usize] as usize];
             node.aabb.grow(tri);
         }
     }
 
-    fn subdivide<Strat>(&mut self, triangles: &[SubBVH], node_id: u32)
+    fn subdivide<Strat>(&mut self, node_id: u32)
     where
         Strat: SplitPlaneStrategy<SimpleBVHNode, SubBVH>,
     {
@@ -449,7 +383,7 @@ where
             axis,
             split_position: split_pos,
             should_split,
-        } = Strat::get_split_plane(node, triangles, &self.triangles_id);
+        } = Strat::get_split_plane(node, &self.triangles, &self.triangles_id);
 
         if !should_split {
             return;
@@ -462,7 +396,7 @@ where
         let mut i = node.first_prim() as isize;
         let mut j = i + node.prim_count as isize - 1;
         while i <= j {
-            if triangles[self.triangles_id[i as usize] as usize].centroid()[axis] < split_pos {
+            if self.triangles[self.triangles_id[i as usize] as usize].centroid()[axis] < split_pos {
                 i += 1;
             } else {
                 self.triangles_id.swap(i as usize, j as usize);
@@ -496,10 +430,10 @@ where
 
         let left_child_idx = left_child_idx as u32;
         let right_child_idx = right_child_idx as u32;
-        self.build_node_bounds(triangles, left_child_idx);
-        self.build_node_bounds(triangles, right_child_idx);
-        self.subdivide::<Strat>(triangles, left_child_idx);
-        self.subdivide::<Strat>(triangles, right_child_idx);
+        self.build_node_bounds(left_child_idx);
+        self.build_node_bounds(right_child_idx);
+        self.subdivide::<Strat>(left_child_idx);
+        self.subdivide::<Strat>(right_child_idx);
     }
 
     /// Split a node to get the node and both children as mutable
@@ -589,18 +523,14 @@ where
     }
 
     pub fn refit(&mut self) {
-        let triangles_arc = self.triangles.clone();
-        let triangle_ref = triangles_arc.read();
-        let triangles: &[SubBVH] = &triangle_ref;
-
-        if triangles.is_empty() {
+        if self.triangles.is_empty() {
             return;
         }
 
         for i in (self.root_node_id..self.nodes_used).rev() {
             let node = &self.nodes[i as usize];
             if node.is_leaf() {
-                self.build_node_bounds(triangles, i);
+                self.build_node_bounds(i);
                 continue;
             }
 
@@ -665,23 +595,12 @@ where
         }
     }
 
-    pub fn triangles(&self) -> &Arc<RwLock<Vec<SubBVH>>> {
+    pub fn triangles(&self) -> &[SubBVH] {
         &self.triangles
     }
 
-    pub fn read_lock(&self) -> SimpleBVHReadLock<SubBVH> {
-        SimpleBVHReadLock::new(self)
-    }
-
-    /// Intersect the BVH and use the triangles from the vector for the leaves
-    ///
-    /// # Safety
-    /// The triangles must be the same as the one stored in the BVH (you can get the Arc-Mutex from the BVH)
-    #[inline]
-    pub unsafe fn unsafe_inplace_ray_intersect(&self, triangles: &[SubBVH], ray: &mut Ray) {
-        if !triangles.is_empty() {
-            self.inplace_intersect_ray(triangles, self.root_node_id, ray);
-        }
+    pub fn triangles_mut(&mut self) -> &mut [SubBVH] {
+        &mut self.triangles
     }
 
     fn bounds_internal(&self) -> &AABB {
@@ -693,10 +612,9 @@ impl<SubBVH> InPlaceRayIntersect for SimpleBVH<SubBVH>
 where
     SubBVH: BVH,
 {
-    #[inline]
+    #[inline(always)]
     fn inplace_ray_intersect(&self, ray: &mut Ray) {
-        let triangle_ref = self.triangles.read();
-        let triangles: &[SubBVH] = &triangle_ref;
+        let triangles: &[SubBVH] = &self.triangles;
         if !triangles.is_empty() {
             self.inplace_intersect_ray(triangles, self.root_node_id, ray);
         }
@@ -730,9 +648,7 @@ where
 #[cfg(test)]
 mod tests {
 
-    use std::{iter, sync::Arc};
-
-    use parking_lot::RwLock;
+    use std::iter;
 
     use rand::{prelude::SliceRandom, thread_rng, Rng};
 
@@ -750,7 +666,7 @@ mod tests {
 
         let mut bvh = SimpleBVH::default();
 
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(vec![]));
+        let triangles: Vec<Triangle> = vec![];
         bvh.init(triangles);
         bvh.build::<CompiledBinnedSAHStrategy>();
 
@@ -773,7 +689,7 @@ mod tests {
 
         let mut bvh = SimpleBVH::default();
 
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(vec![tri]));
+        let triangles = vec![tri];
 
         bvh.init(triangles);
         bvh.build::<CompiledBinnedSAHStrategy>();
@@ -801,7 +717,7 @@ mod tests {
 
         let mut bvh = SimpleBVH::default();
 
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(vec![tri]));
+        let triangles = vec![tri];
 
         bvh.init(triangles);
         bvh.build::<CompiledBinnedSAHStrategy>();
@@ -824,10 +740,9 @@ mod tests {
             })
             .collect();
 
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
+        let triangles = triangles;
 
-        let triangles_ref = triangles.read();
-        let tri = triangles_ref.choose(&mut rng).unwrap();
+        let tri = triangles.choose(&mut rng).unwrap();
 
         let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
@@ -848,7 +763,7 @@ mod tests {
 
         let mut ray2 = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
 
-        triangles_ref.iter().for_each(|tri| {
+        triangles.iter().for_each(|tri| {
             tri.inplace_ray_intersect(&mut ray2);
         });
 
@@ -868,14 +783,12 @@ mod tests {
             })
             .collect();
 
-        let triangles: Arc<RwLock<Vec<Triangle>>> = Arc::new(RwLock::new(triangles));
-
         let mut bvh = SimpleBVH::default();
         bvh.init(triangles.clone());
         bvh.build::<CompiledBinnedSAHStrategy>();
 
         {
-            let triangles_ref = triangles.read();
+            let triangles_ref = bvh.triangles();
             let tri = triangles_ref.choose(&mut rng).unwrap();
 
             let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
@@ -901,7 +814,7 @@ mod tests {
         }
 
         {
-            let mut triangles_write_ref = triangles.write();
+            let triangles_write_ref = bvh.triangles_mut();
             triangles_write_ref.iter_mut().for_each(|tri| {
                 let v0 = rng.gen::<Vec3A>() * 9.0 - Vec3A::splat(5.0);
                 let v1 = rng.gen();
@@ -913,7 +826,7 @@ mod tests {
         bvh.refit();
 
         {
-            let triangles_ref = triangles.read();
+            let triangles_ref = bvh.triangles();
             let tri = triangles_ref.choose(&mut rng).unwrap();
 
             let mut ray = Ray::infinite_ray(Vec3A::ZERO, tri.centroid.normalize_or_zero());
