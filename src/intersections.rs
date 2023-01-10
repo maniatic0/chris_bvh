@@ -113,7 +113,7 @@ pub fn aabb_slab_test(aabb: &AABB, ray: &Ray) -> bool {
     let ttmin = tmin.max_element();
     let ttmax = tmax.min_element();
 
-    ttmax >= ttmin && ttmin < ray.distance && ttmax > 0.0
+    ttmax > 0.0 && ttmax >= ttmin && ttmin < ray.distance
 }
 
 impl FastRayIntersect for AABB {
